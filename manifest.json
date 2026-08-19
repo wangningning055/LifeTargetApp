@@ -1,0 +1,21 @@
+{
+    "name" : "人生规划书",
+    "appid" : "",
+    "description" : "跨平台人生规划书应用",
+    "versionName" : "1.0.0",
+    "versionCode" : "100",
+    "transformPx" : false,
+    "app-plus" : {
+        "distribute" : {
+            "android" : {
+                "permissions" : []
+            },
+            "ios" : {},
+            "sdkConfigs" : {}
+        }
+    },
+    "h5" : {
+        "title" : "人生规划书"
+    },
+    "vueVersion" : "3"
+}
