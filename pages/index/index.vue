@@ -45,7 +45,6 @@
           <view class="board-label-row">
             <view>
               <view class="carousel-title">当前进行中的目标</view>
-              <view class="carousel-subtitle">按剩余时间从近到远排序，每张卡片直接展示主目标及其子目标</view>
             </view>
             <text class="carousel-count">{{ focusGoalTrees.length }} 项</text>
           </view>
@@ -171,8 +170,11 @@
         <view class="chart-board">
           <view class="chart-hero">
             <view class="chart-hero-side">
-              <view class="chart-zoom-chip">缩放 {{ Math.round(chartZoom * 100) }}%</view>
-              <view class="chart-zoom-tip">双指可在任意区域放大缩小，自动切换信息密度</view>
+              <view class="chart-zoom-actions">
+                <view class="chart-zoom-chip">缩放 {{ Math.round(chartZoom * 100) }}%</view>
+                <view class="chart-zoom-reset" @tap="resetChartZoom">缩放还原</view>
+              </view>
+              <view class="chart-zoom-tip">双指或滚轮可缩放，缩放后会自动定位到今天并以今天为基准展示</view>
             </view>
 
             <view class="chart-hero-center">
@@ -206,6 +208,7 @@
             v-else
             ref="timelineScrollRef"
             scroll-x="true"
+            :scroll-left="timelineScrollLeft"
             class="timeline-scroll"
             show-scrollbar="false"
             @wheel.capture.stop.prevent="handleChartWheel"
@@ -227,10 +230,6 @@
 
               <view class="timeline-stage">
                 <view class="timeline-stage-head">
-                  <view>
-                    <view class="timeline-stage-title">目标卡片区</view>
-                    <view class="timeline-stage-desc">不再按区域拆分，全部目标统一排布，通过颜色和状态文字区分进行中、已完成、已放弃。</view>
-                  </view>
                   <view class="timeline-stage-count">{{ chartTimeline.count }} 项</view>
                 </view>
 
@@ -382,7 +381,8 @@ import { useGoalStore } from '../../store/goalStore';
 import { formatDate, formatRemainingTime, getStatusMeta, sortGoalsByRemainingTime } from '../../utils/goalUtils';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const MIN_CHART_ZOOM = 0.75;
+const DEFAULT_CHART_ZOOM = 1;
+const MIN_CHART_ZOOM = 0.25;
 const MAX_CHART_ZOOM = 2.4;
 const WINDOW_WIDTH = uni.getSystemInfoSync ? uni.getSystemInfoSync().windowWidth || 375 : 375;
 const WHEEL_LISTENER_OPTIONS = { passive: false, capture: true };
@@ -409,7 +409,8 @@ const detailVisible = ref(false);
 const selectedGoalId = ref('');
 const chartPanelRef = ref(null);
 const timelineScrollRef = ref(null);
-const chartZoom = ref(1);
+const timelineScrollLeft = ref(0);
+const chartZoom = ref(DEFAULT_CHART_ZOOM);
 const activeProofGoalId = ref('');
 const pinchState = reactive({
   active: false,
@@ -445,7 +446,7 @@ const chartDisplayMode = computed(() => {
     return 'detail';
   }
 
-  if (chartZoom.value <= 0.95) {
+  if (chartZoom.value < 0.5) {
     return 'compact';
   }
 
@@ -457,10 +458,10 @@ const chartDensityLabel = computed(() => {
   }
 
   if (chartDisplayMode.value === 'compact') {
-    return '概览视图';
+    return '月视图';
   }
 
-  return '标准视图';
+  return chartZoom.value >= 1 ? '日视图' : '月视图';
 });
 const chartSummary = computed(() => {
   const total = regularFlatGoals.value.length;
@@ -561,8 +562,31 @@ function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
 }
 
-function updateChartZoom(nextZoom) {
-  chartZoom.value = Number(clamp(nextZoom, MIN_CHART_ZOOM, MAX_CHART_ZOOM).toFixed(2));
+function updateChartZoom(nextZoom, options = {}) {
+  const normalizedZoom = Number(clamp(nextZoom, MIN_CHART_ZOOM, MAX_CHART_ZOOM).toFixed(2));
+  const shouldSyncToToday = options.forceSync || normalizedZoom !== chartZoom.value;
+
+  chartZoom.value = normalizedZoom;
+
+  if (shouldSyncToToday) {
+    nextTick(() => {
+      syncTimelineToToday();
+    });
+  }
+}
+
+function resetChartZoom() {
+  updateChartZoom(DEFAULT_CHART_ZOOM, { forceSync: true });
+}
+
+function applyTimelineScrollLeft(nextLeft) {
+  const normalizedLeft = Math.max(0, Math.round(Number(nextLeft) || 0));
+  timelineScrollLeft.value = normalizedLeft;
+
+  const scrollElement = resolveNativeElement(timelineScrollRef.value) || (HAS_DOM_QUERY ? document.querySelector('.timeline-scroll') : null);
+  if (scrollElement && typeof scrollElement.scrollLeft === 'number') {
+    scrollElement.scrollLeft = normalizedLeft;
+  }
 }
 
 function parseYmdToMs(value, endOfDay = false) {
@@ -588,11 +612,37 @@ function parseIsoToMs(value) {
   return Number.isFinite(ms) ? ms : null;
 }
 
-function formatAxisLabel(ms) {
+function formatAxisLabel(ms, mode = 'normal', totalDays = 0) {
   const date = new Date(ms);
+  const year = date.getFullYear();
   const month = date.getMonth() + 1;
   const day = date.getDate();
+
+  if (mode === 'year') {
+    return `${year}年`;
+  }
+
+  if (mode === 'compact') {
+    return `${year}年${month}月`;
+  }
+
+  if (mode === 'detail') {
+    if (month === 1 && day === 1) {
+      return `${year}年1月1日`;
+    }
+
+    return `${month}月${day}日`;
+  }
+
   return `${month}.${day}`;
+}
+
+function pushAxisTick(ticks, tickMs, rangeStart, totalSpan, labelMode, suffix = '') {
+  ticks.push({
+    key: `${tickMs}_${labelMode}${suffix}`,
+    label: formatAxisLabel(tickMs, labelMode),
+    left: `${((tickMs - rangeStart) / totalSpan) * 100}%`,
+  });
 }
 
 function formatMsToDate(ms) {
@@ -615,19 +665,11 @@ function getDistance(touches = []) {
 }
 
 function getCardHeight(mode) {
-  if (mode === 'detail') {
-    return 170;
-  }
-
-  if (mode === 'compact') {
-    return 102;
-  }
-
   return 132;
 }
 
 function getColumnWidth(zoom, mode) {
-  const base = mode === 'detail' ? 108 : mode === 'compact' ? 68 : 84;
+  const base = mode === 'detail' ? 108 : mode === 'compact' ? 32 : 84;
   return Math.round(base * zoom);
 }
 
@@ -643,23 +685,32 @@ function getStatusPriority(status) {
   return 2;
 }
 
-function buildTicks(startMs, endMs, mode) {
+function buildTicks(startMs, endMs, mode, zoom = 1) {
   const totalDays = Math.max(1, Math.ceil((endMs - startMs) / DAY_MS));
-  const step = mode === 'detail' ? Math.max(1, Math.ceil(totalDays / 8)) : mode === 'compact' ? Math.max(6, Math.ceil(totalDays / 4)) : Math.max(3, Math.ceil(totalDays / 6));
+  const totalSpan = Math.max(DAY_MS, endMs - startMs);
+  const zoomValue = Number(zoom || 1);
+  const labelMode = zoomValue >= 1 ? 'detail' : 'compact';
+
   const ticks = [];
 
-  for (let index = 0; index <= totalDays; index += step) {
-    const currentMs = startMs + index * DAY_MS;
-    const left = `${((currentMs - startMs) / (endMs - startMs)) * 100}%`;
-    ticks.push({
-      key: `${currentMs}_${index}`,
-      label: formatAxisLabel(currentMs),
-      left,
-    });
+  if (labelMode === 'detail') {
+    for (let index = 0; index <= totalDays; index += 1) {
+      const currentMs = startMs + index * DAY_MS;
+      pushAxisTick(ticks, currentMs, startMs, totalSpan, labelMode, `_${index}`);
+    }
+  } else if (labelMode === 'compact') {
+    const cursor = new Date(startMs);
+    cursor.setDate(1);
+    cursor.setHours(0, 0, 0, 0);
+
+    while (cursor.getTime() <= endMs) {
+      pushAxisTick(ticks, cursor.getTime(), startMs, totalSpan, labelMode);
+      cursor.setMonth(cursor.getMonth() + 1, 1);
+    }
   }
 
   const finalLeft = '100%';
-  const finalLabel = formatAxisLabel(endMs);
+  const finalLabel = formatAxisLabel(endMs, labelMode, totalDays);
   if (!ticks.length || ticks[ticks.length - 1].label !== finalLabel) {
     ticks.push({ key: `final_${endMs}`, label: finalLabel, left: finalLeft });
   }
@@ -679,11 +730,11 @@ function buildTimelineItem(goal, nowMs) {
     : goal.status === 'completed'
       ? completedAtMs || updatedMs || deadlineMs || startMs
       : abandonedAtMs || updatedMs || deadlineMs || startMs;
-  const visibleEndMs = goal.status === 'doing'
-    ? Math.max(startMs + DAY_MS * 0.8, eventMs)
-    : Math.max(startMs + DAY_MS * 0.8, eventMs);
+  const plannedEndMs = deadlineMs || eventMs;
+  const visibleEndMs = Math.max(startMs + DAY_MS * 0.8, plannedEndMs || startMs + DAY_MS * 0.8);
   const eventDateText = formatDate(formatMsToDate(eventMs));
   const eventActionText = goal.status === 'completed' ? '完成' : '放弃';
+  const expectedDateText = goal.endTime ? formatDate(goal.endTime) : '';
 
   return {
     ...goal,
@@ -694,9 +745,12 @@ function buildTimelineItem(goal, nowMs) {
     endMs: visibleEndMs,
     eventLabel: goal.status === 'doing' ? '进行中' : goal.status === 'completed' ? '已完成' : '已放弃',
     timeText: goal.status === 'doing'
-      ? `${formatDate(goal.startTime || '')} 开始 · 当前正在推进`
+      ? expectedDateText
+        ? `${formatDate(goal.startTime || '')} 开始 · 预计 ${expectedDateText} 完成`
+        : `${formatDate(goal.startTime || '')} 开始 · 当前正在推进`
       : `${formatDate(goal.startTime || '')} 开始 · ${eventDateText} ${eventActionText}`,
-    deadlineText: goal.endTime ? formatDate(goal.endTime) : '',
+    deadlineText: expectedDateText,
+    deadlinePrefix: goal.status === 'doing' ? '预计完成' : '截止',
     extraText: goal.purpose || goal.content || '',
     hasProof: Boolean(goal.completionNote || (goal.completionImages && goal.completionImages.length) || goal.completionVideo),
     badgeStyle: {
@@ -708,10 +762,11 @@ function buildTimelineItem(goal, nowMs) {
 
 function layoutTimelineItems(items, rangeStart, rangeEnd, mode) {
   const cardHeight = getCardHeight(mode);
-  const rowGap = mode === 'detail' ? 28 : 20;
-  const verticalPadding = 24;
+  const rowGap = 16;
+  const verticalPadding = 16;
   const rowEndTimes = [];
   const totalSpan = Math.max(DAY_MS, rangeEnd - rangeStart);
+  const minWidthPercent = mode === 'compact' ? 8 : 12;
 
   const arranged = items
     .slice()
@@ -729,34 +784,52 @@ function layoutTimelineItems(items, rangeStart, rangeEnd, mode) {
     })
     .map((item) => {
       let rowIndex = getStatusPriority(item.status);
-      while (rowEndTimes[rowIndex] !== undefined && item.startMs <= rowEndTimes[rowIndex] + DAY_MS * 0.35) {
+      const visualSpanMs = Math.max(item.endMs - item.startMs, totalSpan * (minWidthPercent / 100));
+      const visualEndMs = item.startMs + visualSpanMs;
+      while (rowEndTimes[rowIndex] !== undefined && item.startMs <= rowEndTimes[rowIndex]) {
         rowIndex += 3;
       }
 
-      rowEndTimes[rowIndex] = Math.max(item.endMs, item.deadlineMs || item.endMs);
-      const leftPercent = ((item.startMs - rangeStart) / totalSpan) * 100;
-      const widthPercent = Math.max((((item.endMs - item.startMs) / totalSpan) * 100), mode === 'compact' ? 12 : 16);
-      const top = verticalPadding + rowIndex * (cardHeight + rowGap);
-
+      rowEndTimes[rowIndex] = Math.max(visualEndMs, item.endMs, item.deadlineMs || item.endMs);
       return {
-        ...item,
-        style: {
-          left: `${clamp(leftPercent, 0, 96)}%`,
-          width: `${clamp(widthPercent, mode === 'compact' ? 12 : 16, 92)}%`,
-          top: `${top}rpx`,
-          height: `${cardHeight}rpx`,
-          borderColor: `${item.color}55`,
-          background: `linear-gradient(135deg, ${item.color}14, rgba(255,255,255,0.98))`,
-          boxShadow: activeProofGoalId.value === item.id ? `0 24rpx 56rpx ${item.color}2A` : '0 16rpx 36rpx rgba(15, 23, 42, 0.08)',
-        },
+        item,
+        rowIndex,
+        visualEndMs,
       };
     });
 
-  const rowCount = rowEndTimes.length || 1;
+  const compactRowMap = Array.from(new Set(arranged.map(({ rowIndex }) => rowIndex)))
+    .sort((first, second) => first - second)
+    .reduce((result, rowIndex, denseIndex) => {
+      result[rowIndex] = denseIndex;
+      return result;
+    }, {});
+
+  const renderedItems = arranged.map(({ item, rowIndex }) => {
+    const denseRowIndex = compactRowMap[rowIndex] !== undefined ? compactRowMap[rowIndex] : 0;
+    const leftPercent = ((item.startMs - rangeStart) / totalSpan) * 100;
+    const widthPercent = Math.max((((item.endMs - item.startMs) / totalSpan) * 100), minWidthPercent);
+    const top = verticalPadding + denseRowIndex * (cardHeight + rowGap);
+
+    return {
+      ...item,
+      style: {
+        left: `${clamp(leftPercent, 0, 96)}%`,
+        width: `${clamp(widthPercent, minWidthPercent, 92)}%`,
+        top: `${top}rpx`,
+        height: `${cardHeight}rpx`,
+        borderColor: `${item.color}55`,
+        background: `linear-gradient(135deg, ${item.color}14, rgba(255,255,255,0.98))`,
+        boxShadow: activeProofGoalId.value === item.id ? `0 24rpx 56rpx ${item.color}2A` : '0 16rpx 36rpx rgba(15, 23, 42, 0.08)',
+      },
+    };
+  });
+
+  const rowCount = Object.keys(compactRowMap).length || 1;
   const laneHeight = verticalPadding * 2 + rowCount * cardHeight + (rowCount - 1) * rowGap;
 
   return {
-    items: arranged,
+    items: renderedItems,
     height: `${laneHeight}rpx`,
     count: items.length,
   };
@@ -765,14 +838,25 @@ function layoutTimelineItems(items, rangeStart, rangeEnd, mode) {
 function buildChartTimeline(goals, zoom, mode) {
   const nowMs = Date.now();
   const items = goals.map((goal) => buildTimelineItem(goal, nowMs));
-  const relatedMs = items.flatMap((item) => [item.startMs, item.endMs, item.deadlineMs].filter(Boolean));
-  const baseStart = relatedMs.length ? Math.min(...relatedMs) : nowMs - DAY_MS * 7;
-  const baseEnd = relatedMs.length ? Math.max(...relatedMs) : nowMs + DAY_MS * 7;
-  const paddingDays = mode === 'detail' ? 3 : 4;
-  const rangeStart = baseStart - paddingDays * DAY_MS;
-  const rangeEnd = baseEnd + paddingDays * DAY_MS;
+  const startCandidates = items.map((item) => item.startMs).filter(Boolean);
+  const closedCandidates = items
+    .filter((item) => item.status !== 'doing')
+    .map((item) => item.eventMs)
+    .filter(Boolean);
+  const fallbackEndCandidates = items.map((item) => item.deadlineMs || item.endMs || item.eventMs || item.startMs).filter(Boolean);
+  const baseStart = startCandidates.length ? Math.min(...startCandidates) : nowMs - DAY_MS * 30;
+  const endCandidates = [...closedCandidates, ...fallbackEndCandidates].filter(Boolean);
+  const baseEnd = endCandidates.length ? Math.max(...endCandidates) : nowMs + DAY_MS * 30;
+  const currentYear = new Date(nowMs).getFullYear();
+  const startYear = Math.min(new Date(baseStart).getFullYear(), currentYear - 1);
+  const endYear = Math.max(new Date(baseEnd).getFullYear(), currentYear + 1);
+  const startBoundary = new Date(startYear, 0, 1, 0, 0, 0, 0);
+  const endBoundary = new Date(endYear, 11, 31, 23, 59, 59, 999);
+  const rangeStart = startBoundary.getTime();
+  const rangeEnd = endBoundary.getTime();
   const totalDays = Math.max(10, Math.ceil((rangeEnd - rangeStart) / DAY_MS) + 1);
-  const contentWidthValue = Math.max(1600, totalDays * getColumnWidth(zoom, mode));
+  const minWidth = mode === 'compact' ? 720 : mode === 'detail' ? 1800 : 1280;
+  const contentWidthValue = Math.max(minWidth, totalDays * getColumnWidth(zoom, mode));
   const stageResult = layoutTimelineItems(items, rangeStart, rangeEnd, mode);
   const todayVisible = nowMs >= rangeStart && nowMs <= rangeEnd;
   const todayLeft = `${((nowMs - rangeStart) / Math.max(DAY_MS, rangeEnd - rangeStart)) * 100}%`;
@@ -783,7 +867,7 @@ function buildChartTimeline(goals, zoom, mode) {
     contentWidthValue,
     rangeStart,
     rangeEnd,
-    ticks: buildTicks(rangeStart, rangeEnd, mode),
+    ticks: buildTicks(rangeStart, rangeEnd, mode, zoom),
     todayVisible,
     todayLeft,
     rangeLabel: `${formatDate(formatMsToDate(rangeStart))} - ${formatDate(formatMsToDate(rangeEnd))}`,
@@ -791,6 +875,31 @@ function buildChartTimeline(goals, zoom, mode) {
     height: stageResult.height,
     count: stageResult.count,
   };
+}
+
+function syncTimelineToToday() {
+  if (activeTab.value !== 'chart') {
+    return;
+  }
+
+  if (!chartTimeline.value.hasGoals || !chartTimeline.value.todayVisible) {
+    applyTimelineScrollLeft(0);
+    return;
+  }
+
+  const scrollElement = resolveNativeElement(timelineScrollRef.value) || (HAS_DOM_QUERY ? document.querySelector('.timeline-scroll') : null);
+  const viewportWidthPx = scrollElement?.clientWidth || WINDOW_WIDTH;
+  const contentWidthPx = (chartTimeline.value.contentWidthValue * WINDOW_WIDTH) / 750;
+  const todayOffsetPx = contentWidthPx * ((Date.now() - chartTimeline.value.rangeStart) / Math.max(DAY_MS, chartTimeline.value.rangeEnd - chartTimeline.value.rangeStart));
+  const nextLeft = Math.max(0, Math.min(todayOffsetPx - viewportWidthPx / 2, Math.max(0, contentWidthPx - viewportWidthPx)));
+
+  applyTimelineScrollLeft(nextLeft);
+
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(() => {
+      applyTimelineScrollLeft(nextLeft);
+    });
+  }
 }
 
 function switchTab(tab) {
@@ -982,6 +1091,7 @@ watch(
 
     await nextTick();
     bindWheelZoom();
+    syncTimelineToToday();
   },
   { immediate: true }
 );
@@ -996,6 +1106,7 @@ watch(
     await nextTick();
     unbindWheelZoom();
     bindWheelZoom();
+    syncTimelineToToday();
   }
 );
 
@@ -1507,6 +1618,13 @@ function changeStatus(payload) {
   gap: 12rpx;
 }
 
+.chart-zoom-actions {
+  display: flex;
+  align-items: center;
+  gap: 12rpx;
+  flex-wrap: wrap;
+}
+
 .chart-hero-side-right {
   align-items: flex-end;
   text-align: right;
@@ -1527,6 +1645,20 @@ function changeStatus(payload) {
 .chart-zoom-chip {
   color: #1d4ed8;
   background: rgba(37, 99, 235, 0.12);
+}
+
+.chart-zoom-reset {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10rpx 20rpx;
+  border-radius: 999rpx;
+  font-size: 22rpx;
+  font-weight: 700;
+  color: #2563eb;
+  background: rgba(255, 255, 255, 0.92);
+  border: 1rpx solid rgba(37, 99, 235, 0.24);
+  box-shadow: 0 10rpx 24rpx rgba(37, 99, 235, 0.08);
 }
 
 .chart-density-chip {
@@ -1628,13 +1760,15 @@ function changeStatus(payload) {
   position: relative;
   height: 88rpx;
   margin-bottom: 8rpx;
+  padding: 0 16rpx;
+  box-sizing: border-box;
 }
 
 .timeline-axis::after {
   content: '';
   position: absolute;
-  left: 0;
-  right: 0;
+  left: 16rpx;
+  right: 16rpx;
   bottom: 10rpx;
   height: 2rpx;
   background: linear-gradient(90deg, rgba(148, 163, 184, 0.08), rgba(148, 163, 184, 0.45), rgba(148, 163, 184, 0.08));
@@ -1691,6 +1825,10 @@ function changeStatus(payload) {
   justify-content: space-between;
   gap: 18rpx;
   margin-bottom: 14rpx;
+}
+
+.timeline-stage-head.simple {
+  justify-content: flex-end;
 }
 
 .timeline-stage-title {
