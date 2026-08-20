@@ -83,6 +83,30 @@ export function formatRemainingTime(endTime, now = Date.now()) {
   return `剩余 ${formatDuration(remainingMs)}`;
 }
 
+export function formatUltimateTimelineText(startTime, endTime, now = Date.now()) {
+  const startMs = parseDateValue(startTime, false);
+  const endMs = parseDateValue(endTime, true);
+
+  if (startMs !== null && now < startMs) {
+    const days = Math.max(1, Math.ceil((startMs - now) / (1000 * 60 * 60 * 24)));
+    return `离开始还有 ${days} 天`;
+  }
+
+  if (endMs !== null) {
+    const diffDays = Math.ceil(Math.abs(endMs - now) / (1000 * 60 * 60 * 24));
+    if (endMs < now) {
+      return `已过期 ${Math.max(1, diffDays)} 天`;
+    }
+    return `剩余 ${Math.max(1, diffDays)} 天`;
+  }
+
+  if (startMs !== null) {
+    return "已开始";
+  }
+
+  return "未设置时间";
+}
+
 export function getGoalUrgencyScore(goal, now = Date.now()) {
   return getRemainingMs(goal?.endTime, now);
 }

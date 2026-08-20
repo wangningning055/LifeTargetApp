@@ -8,6 +8,7 @@ export const DEFAULT_GOAL_FORM = {
   title: "",
   content: "",
   purpose: "",
+  achieveMethod: "",
   startTime: "",
   endTime: "",
   status: "doing",
@@ -18,4 +19,5 @@ export const DEFAULT_GOAL_FORM = {
   completionVideo: "",
   completedAt: "",
   abandonedAt: "",
+  stageCompletions: [],
 };

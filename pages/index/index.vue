@@ -1,11 +1,39 @@
 <template>
-  <view class="page">
+  <view class="page" :class="[`theme-${currentTheme}`]">
+    <view class="sidebar-trigger" :class="{ active: sidebarVisible }" @tap="toggleSidebar">
+      <text class="sidebar-trigger-icon">☰</text>
+    </view>
+
+    <view v-if="sidebarVisible" class="sidebar-mask sidebar-mask-enter" @tap="closeSidebar">
+      <view class="sidebar-drawer sidebar-drawer-enter" @tap.stop>
+        <view class="sidebar-head">
+          <view class="sidebar-title">功能菜单</view>
+          <view class="sidebar-close" @tap="closeSidebar">×</view>
+        </view>
+
+        <view class="sidebar-option" @tap="openThemeSheet">
+          <view>
+            <view class="sidebar-option-title">更改主题</view>
+            <view class="sidebar-option-desc">当前主题：{{ currentThemeLabel }}</view>
+          </view>
+          <text class="sidebar-option-arrow">›</text>
+        </view>
+
+        <view class="sidebar-option" @tap="openContactUs">
+          <view>
+            <view class="sidebar-option-title">联系我们</view>
+            <view class="sidebar-option-desc">查看反馈与联系说明</view>
+          </view>
+          <text class="sidebar-option-arrow">›</text>
+        </view>
+      </view>
+    </view>
+
     <view class="page-shell">
-      <view v-if="activeTab === 'home'" class="tab-panel home-panel">
+      <view v-if="activeTab === 'home'" :class="['tab-panel', 'home-panel', tabSwitchClass]">
         <view class="floating-board ultimate-board">
           <view class="board-label-row">
             <text class="board-label">终极目标</text>
-            <text class="board-action" @tap="openUltimateGoal">{{ ultimateButtonText }}</text>
           </view>
 
           <template v-if="ultimateRootGoal">
@@ -14,7 +42,6 @@
                 <view class="ultimate-title">{{ ultimateRootGoal.title }}</view>
                 <view class="ultimate-date">到期日期：{{ formatDate(ultimateRootGoal.endTime) }}</view>
               </view>
-              <view class="ultimate-status-badge" :style="ultimateStatusStyle">{{ ultimateStatusMeta.label }}</view>
             </view>
 
             <view class="ultimate-progress-wrap">
@@ -22,14 +49,10 @@
               <view class="ultimate-progress-text">{{ ultimateRootGoal.currentProgress || '暂未记录，点击右上角可立即补充进度。' }}</view>
             </view>
 
-            <view class="ultimate-meta-grid">
+            <view class="ultimate-meta-grid single-column">
               <view class="meta-box">
-                <text class="meta-box-label">剩余时间</text>
-                <text class="meta-box-value emphasis">{{ formatRemainingTime(ultimateRootGoal.endTime) }}</text>
-              </view>
-              <view class="meta-box">
-                <text class="meta-box-label">目标状态</text>
-                <text class="meta-box-value">{{ ultimateStatusMeta.label }}</text>
+                <text class="meta-box-label">时间状态</text>
+                <text class="meta-box-value emphasis">{{ ultimateTimelineText }}</text>
               </view>
             </view>
           </template>
@@ -61,7 +84,7 @@
             <swiper-item v-for="goal in focusGoalTrees" :key="goal.id">
               <scroll-view scroll-y="true" class="focus-card-scroll">
                 <view class="focus-card">
-                  <GoalFocusTree :goal="goal" @select="openDetail" />
+                  <GoalFocusTree :goal="goal" @select="openDetail" @status-change="changeStatus" />
                 </view>
               </scroll-view>
             </swiper-item>
@@ -77,16 +100,21 @@
         </view>
       </view>
 
-      <view v-else-if="activeTab === 'list'" class="tab-panel list-panel">
+      <view v-else-if="activeTab === 'list'" :class="['tab-panel', 'list-panel', tabSwitchClass]">
         <view class="overview-board">
           <view class="overview-head">
             <view>
               <view class="overview-title">目标列表</view>
               <view class="overview-subtitle">查看、编辑并分组管理全部目标与子目标</view>
             </view>
-            <view class="overview-action" @tap="openCreateRoot">
-              <text class="overview-action-icon">＋</text>
-              <text>新增目标</text>
+            <view class="overview-actions">
+              <view class="overview-action" @tap="openCreateRoot">
+                <text class="overview-action-icon">＋</text>
+                <text>新增目标</text>
+              </view>
+              <view class="overview-secondary-action" @tap="openUltimateGoal">
+                <text>{{ ultimateButtonText }}</text>
+              </view>
             </view>
           </view>
 
@@ -145,6 +173,11 @@
                 :key="goal.id"
                 :goal="goal"
                 :level="0"
+                :show-edit="group.key === 'doing'"
+                :show-delete="group.key === 'completed' || group.key === 'abandoned'"
+                :show-add-child="group.key === 'doing'"
+                :show-status-actions="group.key === 'doing' || group.key === 'abandoned'"
+                :show-children="group.key === 'doing'"
                 @select="openDetail"
                 @edit="openEdit"
                 @delete="confirmDelete"
@@ -159,7 +192,7 @@
       <view
         v-else
         ref="chartPanelRef"
-        class="tab-panel chart-panel"
+        :class="['tab-panel', 'chart-panel', tabSwitchClass]"
         @wheel.capture.stop.prevent="handleChartWheel"
         @mousewheel.capture.stop.prevent="handleChartWheel"
         @touchstart="handleChartTouchStart"
@@ -174,7 +207,6 @@
                 <view class="chart-zoom-chip">缩放 {{ Math.round(chartZoom * 100) }}%</view>
                 <view class="chart-zoom-reset" @tap="resetChartZoom">缩放还原</view>
               </view>
-              <view class="chart-zoom-tip">双指或滚轮可缩放，缩放后会自动定位到今天并以今天为基准展示</view>
             </view>
 
             <view class="chart-hero-center">
@@ -213,6 +245,10 @@
             show-scrollbar="false"
             @wheel.capture.stop.prevent="handleChartWheel"
             @mousewheel.capture.stop.prevent="handleChartWheel"
+            @touchstart="handleChartTouchStart"
+            @touchmove="handleChartTouchMove"
+            @touchend="handleChartTouchEnd"
+            @touchcancel="handleChartTouchEnd"
           >
             <view class="timeline-content" :style="{ width: chartTimeline.contentWidth }">
               <view class="timeline-axis">
@@ -256,6 +292,7 @@
                     :key="item.id"
                     class="timeline-goal-card"
                     :class="[chartDisplayMode, item.status, { active: activeProofGoalId === item.id, tappable: item.status === 'completed' && item.hasProof }]"
+                    :data-goal-id="item.id"
                     :style="item.style"
                     @tap="handleTimelineGoalTap(item)"
                   >
@@ -276,11 +313,11 @@
                     </view>
 
                     <view v-if="item.status === 'completed' && item.hasProof" class="timeline-goal-proof-tip">
-                      {{ activeProofGoalId === item.id ? '点击收起完成凭证' : '点击展开完成凭证' }}
+                      {{ activeProofGoalId === item.id ? '点击收起完成成果' : '点击展开完成成果' }}
                     </view>
 
                     <view v-if="item.status === 'completed' && activeProofGoalId === item.id" class="completion-popover" @tap.stop>
-                      <view class="completion-popover-title">完成凭证</view>
+                      <view class="completion-popover-title">完成成果</view>
 
                       <view v-if="item.completionNote" class="completion-popover-note">
                         {{ item.completionNote }}
@@ -335,8 +372,31 @@
       </view>
     </view>
 
+    <view class="effect-overlay">
+      <view
+        v-for="burst in fireworks"
+        :key="burst.id"
+        class="firework-burst"
+        :style="{ left: burst.x, top: burst.y, animationDelay: burst.delay + 'ms' }"
+      >
+        <view
+          v-for="particle in burst.particles"
+          :key="particle.id"
+          class="firework-particle"
+          :style="particle.style"
+        ></view>
+      </view>
+
+      <view
+        v-for="piece in shatterPieces"
+        :key="piece.id"
+        class="shatter-piece"
+        :style="piece.style"
+      ></view>
+    </view>
+
     <view v-if="detailVisible" class="detail-mask" @tap="closeDetail">
-      <view class="detail-sheet" @tap.stop>
+      <view class="detail-sheet detail-sheet-enter" @tap.stop>
         <view class="detail-sheet-head">
           <view>
             <view class="detail-sheet-title">目标详情</view>
@@ -350,6 +410,7 @@
             v-if="selectedGoal"
             :goal="selectedGoal"
             :level="0"
+            :show-delete="false"
             @select="openDetail"
             @edit="openEdit"
             @delete="confirmDelete"
@@ -378,13 +439,15 @@ import GoalFocusTree from '../../components/GoalFocusTree.vue';
 import GoalFormDialog from '../../components/GoalFormDialog.vue';
 import GoalNode from '../../components/GoalNode.vue';
 import { useGoalStore } from '../../store/goalStore';
-import { formatDate, formatRemainingTime, getStatusMeta, sortGoalsByRemainingTime } from '../../utils/goalUtils';
+import { formatDate, formatRemainingTime, formatUltimateTimelineText, getStatusMeta, sortGoalsByRemainingTime } from '../../utils/goalUtils';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_CHART_ZOOM = 1;
-const MIN_CHART_ZOOM = 0.25;
+const MIN_CHART_ZOOM = 0.1;
 const MAX_CHART_ZOOM = 2.4;
+const THEME_STORAGE_KEY = 'goal_theme_preference';
 const WINDOW_WIDTH = uni.getSystemInfoSync ? uni.getSystemInfoSync().windowWidth || 375 : 375;
+const WINDOW_HEIGHT = uni.getSystemInfoSync ? uni.getSystemInfoSync().windowHeight || 812 : 812;
 const WHEEL_LISTENER_OPTIONS = { passive: false, capture: true };
 const HAS_DOM_QUERY = typeof document !== 'undefined' && typeof document.querySelector === 'function';
 const HAS_DOM_EVENT_API = typeof document !== 'undefined' && typeof document.addEventListener === 'function';
@@ -405,18 +468,24 @@ const {
 } = useGoalStore();
 
 const activeTab = ref('home');
+const sidebarVisible = ref(false);
 const detailVisible = ref(false);
+const tabSwitchClass = ref('tab-motion-none');
 const selectedGoalId = ref('');
 const chartPanelRef = ref(null);
 const timelineScrollRef = ref(null);
 const timelineScrollLeft = ref(0);
 const chartZoom = ref(DEFAULT_CHART_ZOOM);
+const currentTheme = ref(loadStoredTheme());
 const activeProofGoalId = ref('');
+const fireworks = ref([]);
+const shatterPieces = ref([]);
 const pinchState = reactive({
   active: false,
   startDistance: 0,
   startZoom: 1,
 });
+const effectTimers = [];
 const dialog = reactive({
   visible: false,
   mode: 'create',
@@ -435,12 +504,9 @@ const regularGoals = computed(() => state.goals.filter((goal) => !goal.isUltimat
 const regularFlatGoals = computed(() => allGoals.value.filter((goal) => !goal.isUltimate));
 const ultimateRootGoal = computed(() => state.goals.find((goal) => goal.isUltimate) || ultimateGoal.value || null);
 const ultimateButtonText = computed(() => (ultimateRootGoal.value ? '编辑终极目标' : '设置终极目标'));
-const ultimateStatusMeta = computed(() => getStatusMeta(ultimateRootGoal.value?.status || 'doing'));
-const ultimateStatusStyle = computed(() => ({
-  color: ultimateStatusMeta.value.color,
-  background: `${ultimateStatusMeta.value.color}1A`,
-}));
-const focusGoalTrees = computed(() => sortGoalTree(filterGoalTree(regularGoals.value, 'doing')));
+const ultimateTimelineText = computed(() => formatUltimateTimelineText(ultimateRootGoal.value?.startTime, ultimateRootGoal.value?.endTime));
+const currentThemeLabel = computed(() => (currentTheme.value === 'dusk' ? '暮色主题' : '明亮主题'));
+const focusGoalTrees = computed(() => sortGoalTree(filterDoingGoalTree(regularGoals.value)));
 const chartDisplayMode = computed(() => {
   if (chartZoom.value >= 1.45) {
     return 'detail';
@@ -486,21 +552,21 @@ const groupedGoals = computed(() => {
       label: '进行中',
       desc: '优先关注即将到期的目标，可继续编辑、拆分和变更状态。',
       count: allGoals.value.filter((goal) => goal.status === 'doing' && !goal.isUltimate).length,
-      goals: sortGoalTree(filterGoalTree(regularGoals.value, 'doing')),
+      goals: sortGoalTree(filterDoingGoalTree(regularGoals.value)),
     },
     {
       key: 'completed',
       label: '已完成',
-      desc: '查看已经完成的目标记录、凭证内容与对应子目标。',
+      desc: '查看已经完成的目标记录与成果内容。',
       count: allGoals.value.filter((goal) => goal.status === 'completed' && !goal.isUltimate).length,
-      goals: sortGoalTree(filterGoalTree(regularGoals.value, 'completed')),
+      goals: buildFlatGroupGoals('completed'),
     },
     {
       key: 'abandoned',
       label: '已放弃',
-      desc: '集中查看已放弃目标，便于后续恢复、删除或复盘。',
-      count: allGoals.value.filter((goal) => goal.status === 'abandoned' && !goal.isUltimate).length,
-      goals: sortGoalTree(filterGoalTree(regularGoals.value, 'abandoned')),
+      desc: '集中查看已放弃目标，便于删除或复盘。',
+      count: allGoals.value.filter((goal) => goal.status === 'abandoned' && !goal.isUltimate && !goal.parentId).length,
+      goals: buildFlatGroupGoals('abandoned'),
     },
   ];
 });
@@ -534,11 +600,50 @@ function filterGoalTree(goals, filter) {
   return walk(goals);
 }
 
+function filterDoingGoalTree(goals) {
+  const walk = (items) => {
+    return (items || []).reduce((result, goal) => {
+      const children = goal.children && goal.children.length ? walk(goal.children) : [];
+
+      if (goal.status === 'doing') {
+        result.push({
+          ...goal,
+          children,
+        });
+        return result;
+      }
+
+      if (children.length) {
+        result.push(...children);
+      }
+
+      return result;
+    }, []);
+  };
+
+  return walk(goals);
+}
+
 function sortGoalTree(goals) {
   return sortGoalsByRemainingTime(goals).map((goal) => ({
     ...goal,
     children: goal.children && goal.children.length ? sortGoalTree(goal.children) : [],
   }));
+}
+
+function buildFlatGroupGoals(status) {
+  return sortGoalsByRemainingTime(
+    regularFlatGoals.value
+      .filter((goal) => goal.status === status && (status !== 'abandoned' || !goal.parentId))
+      .map((goal) => {
+        const parentGoal = goal.parentId ? allGoals.value.find((item) => item.id === goal.parentId) : null;
+        return {
+          ...goal,
+          children: [],
+          parentGoalTitle: parentGoal?.title || '',
+        };
+      })
+  );
 }
 
 function findGoalTreeById(goals, goalId) {
@@ -560,6 +665,200 @@ function findGoalTreeById(goals, goalId) {
 
 function clamp(value, min, max) {
   return Math.min(max, Math.max(min, value));
+}
+
+function loadStoredTheme() {
+  try {
+    const storedTheme = uni.getStorageSync(THEME_STORAGE_KEY);
+    return storedTheme === 'dusk' ? 'dusk' : 'light';
+  } catch (error) {
+    return 'light';
+  }
+}
+
+function setTheme(theme) {
+  const nextTheme = theme === 'dusk' ? 'dusk' : 'light';
+  currentTheme.value = nextTheme;
+
+  try {
+    uni.setStorageSync(THEME_STORAGE_KEY, nextTheme);
+  } catch (error) {
+    // ignore storage errors
+  }
+}
+
+function scheduleEffectCleanup(callback, delay = 0) {
+  const timer = setTimeout(() => {
+    const timerIndex = effectTimers.indexOf(timer);
+    if (timerIndex >= 0) {
+      effectTimers.splice(timerIndex, 1);
+    }
+    callback();
+  }, delay);
+
+  effectTimers.push(timer);
+  return timer;
+}
+
+function createEffectId(prefix) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function randomBetween(min, max) {
+  return min + Math.random() * (max - min);
+}
+
+function getViewportWidth() {
+  if (typeof window !== 'undefined' && window.innerWidth) {
+    return window.innerWidth;
+  }
+
+  return WINDOW_WIDTH;
+}
+
+function getViewportHeight() {
+  if (typeof window !== 'undefined' && window.innerHeight) {
+    return window.innerHeight;
+  }
+
+  return WINDOW_HEIGHT;
+}
+
+function resolveGoalElement(goalId) {
+  if (!HAS_DOM_QUERY || !goalId) {
+    return null;
+  }
+
+  const candidates = Array.from(document.querySelectorAll('[data-goal-id]'));
+  return candidates.find((element) => String(element.getAttribute('data-goal-id')) === String(goalId)) || null;
+}
+
+function getGoalEffectAnchor(goalId) {
+  const viewportWidth = getViewportWidth();
+  const viewportHeight = getViewportHeight();
+  const element = resolveGoalElement(goalId);
+
+  if (!element || typeof element.getBoundingClientRect !== 'function') {
+    return {
+      element: null,
+      rect: null,
+      x: '50%',
+      y: '34%',
+    };
+  }
+
+  const rect = element.getBoundingClientRect();
+  const centerX = rect.left + rect.width / 2;
+  const centerY = rect.top + rect.height / 2;
+
+  return {
+    element,
+    rect,
+    x: `${(centerX / viewportWidth) * 100}%`,
+    y: `${(centerY / viewportHeight) * 100}%`,
+  };
+}
+
+function triggerFireworks(goalId) {
+  const anchor = getGoalEffectAnchor(goalId);
+  const nextBursts = Array.from({ length: 4 }, (_, burstIndex) => {
+    const burstId = createEffectId('firework');
+    const offsetX = randomBetween(-10, 10);
+    const offsetY = randomBetween(-8, 8);
+    const particles = Array.from({ length: 14 }, (_, particleIndex) => {
+      const angle = (Math.PI * 2 * particleIndex) / 14 + randomBetween(-0.12, 0.12);
+      const distance = randomBetween(70, 170);
+      const size = randomBetween(10, 18);
+      const palette = ['#f59e0b', '#ef4444', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
+
+      return {
+        id: `${burstId}_${particleIndex}`,
+        style: {
+          '--particle-size': `${size}rpx`,
+          '--particle-color': palette[particleIndex % palette.length],
+          '--particle-x': `${Math.cos(angle) * distance}rpx`,
+          '--particle-y': `${Math.sin(angle) * distance}rpx`,
+          '--particle-rotate': `${randomBetween(-220, 220)}deg`,
+          animationDelay: `${burstIndex * 120}ms`,
+        },
+      };
+    });
+
+    return {
+      id: burstId,
+      x: `calc(${anchor.x} + ${offsetX}%)`,
+      y: `calc(${anchor.y} + ${offsetY}%)`,
+      delay: burstIndex * 120,
+      particles,
+    };
+  });
+
+  fireworks.value = [...fireworks.value, ...nextBursts];
+
+  scheduleEffectCleanup(() => {
+    const burstIds = nextBursts.map((item) => item.id);
+    fireworks.value = fireworks.value.filter((item) => !burstIds.includes(item.id));
+  }, 1800);
+}
+
+function triggerGoalShatter(goalId, onComplete) {
+  const anchor = getGoalEffectAnchor(goalId);
+
+  if (!anchor.rect) {
+    onComplete?.();
+    return;
+  }
+
+  const { rect, element } = anchor;
+  const rows = 3;
+  const columns = 3;
+  const pieceWidth = rect.width / columns;
+  const pieceHeight = rect.height / rows;
+  const nextPieces = [];
+
+  if (element && element.style) {
+    element.style.transition = 'opacity 0.42s ease, transform 0.42s ease, filter 0.42s ease';
+    element.style.opacity = '0';
+    element.style.transform = 'scale(0.92)';
+    element.style.filter = 'blur(10px)';
+  }
+
+  for (let row = 0; row < rows; row += 1) {
+    for (let column = 0; column < columns; column += 1) {
+      nextPieces.push({
+        id: createEffectId('shatter'),
+        style: {
+          left: `${rect.left + pieceWidth * column}px`,
+          top: `${rect.top + pieceHeight * row}px`,
+          width: `${pieceWidth}px`,
+          height: `${pieceHeight}px`,
+          '--shatter-x': `${randomBetween(-120, 120)}rpx`,
+          '--shatter-y': `${randomBetween(-140, 160)}rpx`,
+          '--shatter-r': `${randomBetween(-150, 150)}deg`,
+          '--shatter-delay': `${(row + column) * 24}ms`,
+          '--shatter-bg': currentTheme.value === 'dusk'
+            ? 'linear-gradient(135deg, rgba(30, 41, 59, 0.92), rgba(15, 23, 42, 0.88))'
+            : 'linear-gradient(135deg, rgba(255, 255, 255, 0.96), rgba(226, 232, 240, 0.92))',
+        },
+      });
+    }
+  }
+
+  shatterPieces.value = [...shatterPieces.value, ...nextPieces];
+
+  scheduleEffectCleanup(() => {
+    const pieceIds = nextPieces.map((item) => item.id);
+    shatterPieces.value = shatterPieces.value.filter((item) => !pieceIds.includes(item.id));
+
+    if (element && element.style) {
+      element.style.opacity = '';
+      element.style.transform = '';
+      element.style.filter = '';
+      element.style.transition = '';
+    }
+
+    onComplete?.();
+  }, 460);
 }
 
 function updateChartZoom(nextZoom, options = {}) {
@@ -619,19 +918,19 @@ function formatAxisLabel(ms, mode = 'normal', totalDays = 0) {
   const day = date.getDate();
 
   if (mode === 'year') {
-    return `${year}年`;
+    return `${year}`;
   }
 
   if (mode === 'compact') {
-    return `${year}年${month}月`;
+    return `${year}.${month}`;
   }
 
   if (mode === 'detail') {
     if (month === 1 && day === 1) {
-      return `${year}年1月1日`;
+      return `${year}.1.1`;
     }
 
-    return `${month}月${day}日`;
+    return `${month}.${day}`;
   }
 
   return `${month}.${day}`;
@@ -751,7 +1050,7 @@ function buildTimelineItem(goal, nowMs) {
       : `${formatDate(goal.startTime || '')} 开始 · ${eventDateText} ${eventActionText}`,
     deadlineText: expectedDateText,
     deadlinePrefix: goal.status === 'doing' ? '预计完成' : '截止',
-    extraText: goal.purpose || goal.content || '',
+    extraText: goal.purpose || goal.achieveMethod || goal.content || '',
     hasProof: Boolean(goal.completionNote || (goal.completionImages && goal.completionImages.length) || goal.completionVideo),
     badgeStyle: {
       color: statusMeta.color,
@@ -819,8 +1118,12 @@ function layoutTimelineItems(items, rangeStart, rangeEnd, mode) {
         top: `${top}rpx`,
         height: `${cardHeight}rpx`,
         borderColor: `${item.color}55`,
-        background: `linear-gradient(135deg, ${item.color}14, rgba(255,255,255,0.98))`,
-        boxShadow: activeProofGoalId.value === item.id ? `0 24rpx 56rpx ${item.color}2A` : '0 16rpx 36rpx rgba(15, 23, 42, 0.08)',
+        background: currentTheme.value === 'dusk'
+          ? `linear-gradient(135deg, ${item.color}22, rgba(15,23,42,0.96))`
+          : `linear-gradient(135deg, ${item.color}14, rgba(255,255,255,0.98))`,
+        boxShadow: activeProofGoalId.value === item.id
+          ? `0 24rpx 56rpx ${item.color}2A`
+          : (currentTheme.value === 'dusk' ? '0 16rpx 36rpx rgba(2, 6, 23, 0.28)' : '0 16rpx 36rpx rgba(15, 23, 42, 0.08)'),
       },
     };
   });
@@ -903,8 +1206,55 @@ function syncTimelineToToday() {
 }
 
 function switchTab(tab) {
+  const tabOrder = ['home', 'list', 'chart'];
+  const previousIndex = tabOrder.indexOf(activeTab.value);
+  const nextIndex = tabOrder.indexOf(tab);
+
+  if (activeTab.value === tab) {
+    tabSwitchClass.value = 'tab-bounce';
+    setTimeout(() => {
+      tabSwitchClass.value = 'tab-motion-none';
+    }, 420);
+    return;
+  }
+
+  tabSwitchClass.value = nextIndex >= previousIndex ? 'tab-slide-left' : 'tab-slide-right';
   activeTab.value = tab;
   activeProofGoalId.value = '';
+
+  setTimeout(() => {
+    if (tabSwitchClass.value !== 'tab-bounce') {
+      tabSwitchClass.value = 'tab-motion-none';
+    }
+  }, 420);
+}
+
+function toggleSidebar() {
+  sidebarVisible.value = !sidebarVisible.value;
+}
+
+function closeSidebar() {
+  sidebarVisible.value = false;
+}
+
+function openThemeSheet() {
+  closeSidebar();
+  uni.showActionSheet({
+    itemList: ['明亮主题', '暮色主题'],
+    success: (res) => {
+      setTheme(res.tapIndex === 1 ? 'dusk' : 'light');
+    },
+  });
+}
+
+function openContactUs() {
+  closeSidebar();
+  uni.showModal({
+    title: '联系我们',
+    content: '如果你有建议或使用问题，可通过当前应用维护渠道联系开发者进行反馈。',
+    showCancel: false,
+    confirmText: '知道了',
+  });
 }
 
 function toggleGroup(key) {
@@ -912,6 +1262,10 @@ function toggleGroup(key) {
 }
 
 function openDetail(goal) {
+  if (!goal || goal.status === 'completed' || goal.status === 'abandoned') {
+    return;
+  }
+
   selectedGoalId.value = goal.id;
   detailVisible.value = true;
 }
@@ -936,6 +1290,14 @@ function handleChartTouchStart(event) {
     return;
   }
 
+  if (typeof event.preventDefault === 'function') {
+    event.preventDefault();
+  }
+
+  if (typeof event.stopPropagation === 'function') {
+    event.stopPropagation();
+  }
+
   pinchState.active = true;
   pinchState.startDistance = getDistance(touches);
   pinchState.startZoom = chartZoom.value;
@@ -945,6 +1307,14 @@ function handleChartTouchMove(event) {
   const touches = event.touches || [];
   if (!pinchState.active || touches.length < 2) {
     return;
+  }
+
+  if (typeof event.preventDefault === 'function') {
+    event.preventDefault();
+  }
+
+  if (typeof event.stopPropagation === 'function') {
+    event.stopPropagation();
   }
 
   const currentDistance = getDistance(touches);
@@ -1128,6 +1498,9 @@ onBeforeUnmount(() => {
     document.removeEventListener('wheel', handleGlobalWheel, WHEEL_LISTENER_OPTIONS);
     document.removeEventListener('mousewheel', handleGlobalWheel, WHEEL_LISTENER_OPTIONS);
   }
+
+  effectTimers.forEach((timer) => clearTimeout(timer));
+  effectTimers.length = 0;
 });
 
 function openCreateRoot() {
@@ -1141,6 +1514,10 @@ function openCreateRoot() {
 }
 
 function openEdit(goal) {
+  if (!goal || goal.status === 'completed' || goal.status === 'abandoned') {
+    return;
+  }
+
   closeDetail();
   dialog.visible = true;
   dialog.mode = goal.isUltimate ? 'ultimate' : 'edit';
@@ -1192,8 +1569,13 @@ function closeDialog() {
 
 function saveGoal(form) {
   let success = false;
+  let effectGoalId = '';
 
-  if ((dialog.mode === 'edit' || dialog.mode === 'complete' || dialog.mode === 'ultimate') && dialog.initialValue && dialog.initialValue.id) {
+  if (dialog.mode === 'complete' && dialog.initialValue && dialog.initialValue.id) {
+    effectGoalId = dialog.initialValue.id;
+    const result = setGoalStatus(dialog.initialValue.id, 'completed', form);
+    success = Boolean(result?.success);
+  } else if ((dialog.mode === 'edit' || dialog.mode === 'ultimate') && dialog.initialValue && dialog.initialValue.id) {
     success = editGoal(dialog.initialValue.id, form);
   } else if (dialog.mode === 'child' && dialog.parentGoalId) {
     success = addSubGoal(dialog.parentGoalId, form);
@@ -1202,11 +1584,18 @@ function saveGoal(form) {
   }
 
   if (!success) {
-    uni.showToast({ title: '终极目标只允许设置一个，请直接编辑已有终极目标', icon: 'none' });
+    const title = dialog.mode === 'complete'
+      ? '请至少填写一项完成成果'
+      : '终极目标只允许设置一个，请直接编辑已有终极目标';
+    uni.showToast({ title, icon: 'none' });
     return;
   }
 
   closeDialog();
+
+  if (dialog.mode === 'complete' && effectGoalId) {
+    triggerFireworks(effectGoalId);
+  }
 }
 
 function confirmDelete(goal) {
@@ -1235,7 +1624,37 @@ function changeStatus(payload) {
     return;
   }
 
-  setGoalStatus(payload.goal.id, payload.status);
+  if (payload.status === 'abandoned') {
+    const hasChildren = payload.goal.children && payload.goal.children.length;
+    const isChildGoal = Boolean(payload.goal.parentId);
+    const content = isChildGoal
+      ? '确认要放弃子目标「' + payload.goal.title + '」吗？当前子目标数据会被清除。'
+      : (hasChildren
+        ? '确认要放弃「' + payload.goal.title + '」吗？坚持坚持，再加把劲！其子目标会被一并清空。'
+        : '确认要放弃「' + payload.goal.title + '」吗？坚持坚持，再加把劲！');
+
+    uni.showModal({
+      title: '确认放弃目标',
+      content,
+      confirmColor: '#dc2626',
+      success: (res) => {
+        if (res.confirm) {
+          triggerGoalShatter(payload.goal.id, () => {
+            const result = setGoalStatus(payload.goal.id, payload.status);
+            if (result?.action === 'deleted' && selectedGoalId.value === payload.goal.id) {
+              closeDetail();
+            }
+          });
+        }
+      },
+    });
+    return;
+  }
+
+  const result = setGoalStatus(payload.goal.id, payload.status);
+  if (result?.action === 'deleted' && selectedGoalId.value === payload.goal.id) {
+    closeDetail();
+  }
 }
 </script>
 
@@ -1243,8 +1662,91 @@ function changeStatus(payload) {
 .page {
   min-height: 100vh;
   padding: 28rpx;
-  padding-bottom: 188rpx;
+  padding-top: calc(28rpx + var(--app-safe-top));
+  padding-bottom: calc(188rpx + var(--app-safe-bottom));
   position: relative;
+  color: var(--theme-text-primary);
+  background: var(--theme-page-bg);
+  transition: background 0.24s ease, color 0.24s ease;
+  --theme-page-bg: linear-gradient(180deg, #f8fbff 0%, #eef4ff 100%);
+  --theme-board-bg: rgba(255, 255, 255, 0.72);
+  --theme-board-sub-bg: rgba(255, 255, 255, 0.62);
+  --theme-board-border: rgba(120, 104, 84, 0.12);
+  --theme-board-shadow: 0 22rpx 62rpx rgba(44, 35, 20, 0.1);
+  --theme-text-primary: #111827;
+  --theme-text-secondary: #6b7280;
+  --theme-nav-bg: rgba(255, 255, 255, 0.72);
+  --theme-nav-border: rgba(120, 104, 84, 0.12);
+  --theme-nav-shadow: 0 24rpx 60rpx rgba(44, 35, 20, 0.14);
+  --theme-nav-color: #64748b;
+  --theme-nav-active: #1d4ed8;
+  --theme-sheet-bg: rgba(248, 250, 252, 0.78);
+  --theme-sheet-shadow: 0 -20rpx 60rpx rgba(15, 23, 42, 0.16);
+  --theme-drawer-bg: rgba(255, 255, 255, 0.78);
+  --theme-drawer-shadow: 0 28rpx 80rpx rgba(15, 23, 42, 0.18);
+  --theme-board-strong-bg: linear-gradient(135deg, rgba(245, 243, 255, 0.82), rgba(255, 255, 255, 0.66));
+  --theme-focus-card-bg: linear-gradient(135deg, rgba(255, 255, 255, 0.82), rgba(241, 245, 249, 0.72));
+  --theme-ultimate-board-bg: linear-gradient(135deg, rgba(237, 233, 254, 0.86), rgba(255, 255, 255, 0.72));
+  --theme-progress-bg: rgba(255, 255, 255, 0.58);
+  --theme-chip-bg: rgba(255, 255, 255, 0.72);
+  --theme-chip-text: #334155;
+  --theme-chart-board-bg: rgba(255, 255, 255, 0.74);
+  --theme-chart-stage-bg: linear-gradient(180deg, rgba(248, 250, 252, 0.8), rgba(255, 255, 255, 0.72));
+  --theme-chart-reset-bg: rgba(255, 255, 255, 0.72);
+  --theme-card-title: #111827;
+  --theme-card-text: #475569;
+  --theme-muted-text: #64748b;
+  --theme-plain-bg: rgba(248, 250, 252, 0.64);
+  --theme-success-bg: rgba(240, 253, 244, 0.96);
+  --theme-success-border: rgba(34, 197, 94, 0.24);
+  --theme-success-text: #166534;
+  --theme-danger-bg: rgba(254, 242, 242, 0.96);
+  --theme-danger-border: rgba(239, 68, 68, 0.24);
+  --theme-danger-text: #b91c1c;
+  --theme-primary-soft-bg: rgba(239, 246, 255, 0.96);
+  --theme-primary-soft-border: rgba(59, 130, 246, 0.24);
+  --theme-primary-soft-text: #1d4ed8;
+}
+
+.page.theme-dusk {
+  --theme-page-bg: linear-gradient(180deg, #0f172a 0%, #1e1b4b 100%);
+  --theme-board-bg: rgba(15, 23, 42, 0.72);
+  --theme-board-sub-bg: rgba(30, 41, 59, 0.62);
+  --theme-board-border: rgba(148, 163, 184, 0.16);
+  --theme-board-shadow: 0 22rpx 64rpx rgba(2, 6, 23, 0.34);
+  --theme-text-primary: #e2e8f0;
+  --theme-text-secondary: #94a3b8;
+  --theme-nav-bg: rgba(15, 23, 42, 0.72);
+  --theme-nav-border: rgba(148, 163, 184, 0.16);
+  --theme-nav-shadow: 0 24rpx 60rpx rgba(2, 6, 23, 0.36);
+  --theme-nav-color: #94a3b8;
+  --theme-nav-active: #c4b5fd;
+  --theme-sheet-bg: rgba(15, 23, 42, 0.8);
+  --theme-sheet-shadow: 0 -20rpx 60rpx rgba(2, 6, 23, 0.42);
+  --theme-drawer-bg: rgba(15, 23, 42, 0.8);
+  --theme-drawer-shadow: 0 28rpx 80rpx rgba(2, 6, 23, 0.38);
+  --theme-board-strong-bg: linear-gradient(135deg, rgba(30, 41, 59, 0.82), rgba(15, 23, 42, 0.72));
+  --theme-focus-card-bg: linear-gradient(135deg, rgba(30, 41, 59, 0.84), rgba(15, 23, 42, 0.72));
+  --theme-ultimate-board-bg: linear-gradient(135deg, rgba(49, 46, 129, 0.36), rgba(15, 23, 42, 0.8));
+  --theme-progress-bg: rgba(30, 41, 59, 0.58);
+  --theme-chip-bg: rgba(30, 41, 59, 0.68);
+  --theme-chip-text: #cbd5e1;
+  --theme-chart-board-bg: rgba(15, 23, 42, 0.74);
+  --theme-chart-stage-bg: linear-gradient(180deg, rgba(15, 23, 42, 0.8), rgba(30, 41, 59, 0.72));
+  --theme-chart-reset-bg: rgba(30, 41, 59, 0.7);
+  --theme-card-title: #e2e8f0;
+  --theme-card-text: #cbd5e1;
+  --theme-muted-text: #94a3b8;
+  --theme-plain-bg: rgba(30, 41, 59, 0.62);
+  --theme-success-bg: rgba(20, 83, 45, 0.34);
+  --theme-success-border: rgba(74, 222, 128, 0.3);
+  --theme-success-text: #86efac;
+  --theme-danger-bg: rgba(127, 29, 29, 0.34);
+  --theme-danger-border: rgba(248, 113, 113, 0.28);
+  --theme-danger-text: #fca5a5;
+  --theme-primary-soft-bg: rgba(30, 64, 175, 0.28);
+  --theme-primary-soft-border: rgba(96, 165, 250, 0.28);
+  --theme-primary-soft-text: #93c5fd;
 }
 
 .page::before,
@@ -1254,7 +1756,8 @@ function changeStatus(payload) {
   border-radius: 50%;
   pointer-events: none;
   z-index: 0;
-  filter: blur(24rpx);
+  filter: blur(32rpx);
+  animation: ambientFloat 7.6s ease-in-out infinite alternate;
 }
 
 .page::before {
@@ -1280,6 +1783,144 @@ function changeStatus(payload) {
   z-index: 1;
 }
 
+.page-shell {
+  padding-top: 96rpx;
+}
+
+.tab-motion-none {
+  animation: none;
+}
+
+.tab-slide-left {
+  animation: panelSlideLeft 0.42s var(--app-ease-spring);
+}
+
+.tab-slide-right {
+  animation: panelSlideRight 0.42s var(--app-ease-spring);
+}
+
+.tab-bounce {
+  animation: tabBounce 0.42s var(--app-ease-bounce);
+}
+
+.sidebar-trigger {
+  position: fixed;
+  left: 28rpx;
+  bottom: calc(132rpx + var(--app-safe-bottom));
+  width: 76rpx;
+  height: 76rpx;
+  border-radius: 24rpx;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--theme-drawer-bg);
+  border: 1rpx solid var(--theme-board-border);
+  box-shadow: var(--theme-board-shadow);
+  backdrop-filter: blur(var(--app-blur-strong));
+  z-index: 20;
+}
+
+.sidebar-trigger.active {
+  transform: translateY(-8rpx) scale(1.05);
+  box-shadow: 0 24rpx 56rpx rgba(37, 99, 235, 0.18);
+}
+
+.sidebar-trigger-icon {
+  font-size: 34rpx;
+  line-height: 1;
+  color: var(--theme-text-primary);
+}
+
+.sidebar-mask {
+  position: fixed;
+  inset: 0;
+  z-index: 24;
+  display: flex;
+  justify-content: flex-start;
+  background: rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(var(--app-blur-soft));
+}
+
+.sidebar-mask-enter {
+  animation: fadeInSoft 0.28s ease;
+}
+
+.sidebar-drawer {
+  width: 520rpx;
+  max-width: calc(100vw - 96rpx);
+  min-height: 100vh;
+  padding: calc(36rpx + var(--app-safe-top)) 28rpx 36rpx;
+  box-sizing: border-box;
+  background: var(--theme-drawer-bg);
+  box-shadow: var(--theme-drawer-shadow);
+  border-radius: 0 var(--app-radius-xl) var(--app-radius-xl) 0;
+  backdrop-filter: blur(var(--app-blur-strong));
+}
+
+.sidebar-drawer-enter {
+  animation: slideDrawerIn 0.38s var(--app-ease-spring);
+}
+
+.sidebar-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+}
+
+.sidebar-title {
+  font-size: 34rpx;
+  font-weight: 800;
+  color: var(--theme-text-primary);
+}
+
+.sidebar-close {
+  width: 60rpx;
+  height: 60rpx;
+  border-radius: var(--app-radius-xs);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 34rpx;
+  color: var(--theme-text-secondary);
+  background: rgba(148, 163, 184, 0.12);
+}
+
+.sidebar-option {
+  margin-top: 24rpx;
+  padding: 26rpx 22rpx;
+  border-radius: var(--app-radius-md);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20rpx;
+  background: var(--theme-board-sub-bg);
+  border: 1rpx solid var(--theme-board-border);
+  backdrop-filter: blur(var(--app-blur-soft));
+}
+
+.sidebar-option:active {
+  transform: translateX(10rpx) scale(0.99);
+}
+
+.sidebar-option-title {
+  font-size: 28rpx;
+  font-weight: 700;
+  color: var(--theme-text-primary);
+}
+
+.sidebar-option-desc {
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  line-height: 1.6;
+  color: var(--theme-text-secondary);
+}
+
+.sidebar-option-arrow {
+  font-size: 34rpx;
+  color: var(--theme-text-secondary);
+}
+
 .tab-panel {
   min-height: calc(100vh - 240rpx);
 }
@@ -1289,16 +1930,17 @@ function changeStatus(payload) {
 .group-board,
 .mini-ultimate-card,
 .chart-placeholder {
-  background: rgba(255, 255, 255, 0.82);
-  border: 1rpx solid rgba(120, 104, 84, 0.12);
-  box-shadow: 0 18rpx 48rpx rgba(44, 35, 20, 0.08);
-  backdrop-filter: blur(12px);
+  background: var(--theme-board-bg);
+  border: 1rpx solid var(--theme-board-border);
+  box-shadow: var(--theme-board-shadow);
+  backdrop-filter: blur(var(--app-blur-strong));
+  animation: boardFloatIn 0.5s var(--app-ease-spring) both;
 }
 
 .floating-board,
 .overview-board,
 .chart-placeholder {
-  border-radius: 36rpx;
+  border-radius: var(--app-radius-lg);
   padding: 28rpx;
 }
 
@@ -1322,8 +1964,8 @@ function changeStatus(payload) {
   font-weight: 700;
 }
 
-.board-action,
 .overview-action,
+.overview-secondary-action,
 .panel-empty-btn {
   display: inline-flex;
   align-items: center;
@@ -1332,11 +1974,20 @@ function changeStatus(payload) {
   border-radius: 999rpx;
   font-size: 24rpx;
   font-weight: 700;
+  box-shadow: 0 14rpx 34rpx rgba(37, 99, 235, 0.12);
 }
 
-.board-action {
-  color: #1d4ed8;
-  background: rgba(37, 99, 235, 0.1);
+.overview-action:active,
+.overview-secondary-action:active,
+.panel-empty-btn:active {
+  transform: translateY(6rpx) scale(0.97);
+}
+
+.overview-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 14rpx;
 }
 
 .overview-action {
@@ -1347,6 +1998,12 @@ function changeStatus(payload) {
   box-shadow: 0 16rpx 36rpx rgba(37, 99, 235, 0.28);
 }
 
+.overview-secondary-action {
+  padding: 14rpx 26rpx;
+  color: #1d4ed8;
+  background: rgba(37, 99, 235, 0.1);
+}
+
 .overview-action-icon {
   font-size: 28rpx;
   line-height: 1;
@@ -1354,7 +2011,7 @@ function changeStatus(payload) {
 }
 
 .ultimate-board {
-  background: linear-gradient(135deg, rgba(237, 233, 254, 0.94), rgba(255, 255, 255, 0.9));
+  background: var(--theme-ultimate-board-bg);
 }
 
 .ultimate-title-row {
@@ -1369,13 +2026,13 @@ function changeStatus(payload) {
   font-size: 38rpx;
   line-height: 1.35;
   font-weight: 800;
-  color: #111827;
+  color: var(--theme-card-title);
 }
 
 .ultimate-date {
   margin-top: 12rpx;
   font-size: 24rpx;
-  color: #6b7280;
+  color: var(--theme-text-secondary);
 }
 
 .ultimate-status-badge,
@@ -1393,8 +2050,9 @@ function changeStatus(payload) {
 .ultimate-progress-wrap {
   margin-top: 24rpx;
   padding: 24rpx;
-  border-radius: 28rpx;
-  background: rgba(255, 255, 255, 0.72);
+  border-radius: var(--app-radius-md);
+  background: var(--theme-progress-bg);
+  backdrop-filter: blur(var(--app-blur-soft));
 }
 
 .ultimate-progress-label,
@@ -1402,14 +2060,14 @@ function changeStatus(payload) {
 .focus-metric-label,
 .mini-ultimate-label {
   font-size: 22rpx;
-  color: #6b7280;
+  color: var(--theme-text-secondary);
 }
 
 .ultimate-progress-text {
   margin-top: 12rpx;
   font-size: 26rpx;
   line-height: 1.7;
-  color: #4c1d95;
+  color: var(--theme-card-text);
 }
 
 .ultimate-meta-grid,
@@ -1425,12 +2083,17 @@ function changeStatus(payload) {
   margin-top: 20rpx;
 }
 
+.ultimate-meta-grid.single-column {
+  grid-template-columns: minmax(0, 1fr);
+}
+
 .meta-box,
 .focus-metric,
 .stat-card {
   padding: 22rpx;
-  border-radius: 26rpx;
-  background: rgba(255, 255, 255, 0.82);
+  border-radius: var(--app-radius-sm);
+  background: var(--theme-board-sub-bg);
+  backdrop-filter: blur(var(--app-blur-soft));
 }
 
 .meta-box-value,
@@ -1444,7 +2107,7 @@ function changeStatus(payload) {
 .group-empty-title,
 .detail-sheet-title {
   display: block;
-  color: #111827;
+  color: var(--theme-text-primary);
   font-weight: 800;
 }
 
@@ -1473,7 +2136,7 @@ function changeStatus(payload) {
   margin-top: 10rpx;
   font-size: 24rpx;
   line-height: 1.7;
-  color: #6b7280;
+  color: var(--theme-text-secondary);
 }
 
 .panel-empty-btn {
@@ -1489,8 +2152,13 @@ function changeStatus(payload) {
   margin-top: 24rpx;
 }
 
+.carousel-board {
+  min-height: calc(100vh - 520rpx);
+}
+
 .goal-swiper {
-  height: 720rpx;
+  height: calc(100vh - 620rpx);
+  min-height: 720rpx;
   margin-top: 24rpx;
 }
 
@@ -1501,9 +2169,11 @@ function changeStatus(payload) {
 .focus-card {
   min-height: 100%;
   padding: 8rpx;
-  border-radius: 30rpx;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), rgba(241, 245, 249, 0.92));
+  border-radius: var(--app-radius-md);
+  background: var(--theme-focus-card-bg);
   border: 1rpx solid rgba(148, 163, 184, 0.18);
+  backdrop-filter: blur(var(--app-blur-soft));
+  animation: focusCardZoomIn 0.42s var(--app-ease-spring) both;
 }
 
 .mini-ultimate-card,
@@ -1530,23 +2200,23 @@ function changeStatus(payload) {
 .stat-value {
   font-size: 42rpx;
   font-weight: 800;
-  color: #111827;
+  color: var(--theme-card-title);
 }
 
 .stat-label {
   margin-top: 8rpx;
   font-size: 24rpx;
-  color: #6b7280;
+  color: var(--theme-text-secondary);
 }
 
 .mini-ultimate-card {
   padding: 24rpx 28rpx;
-  border-radius: 30rpx;
-  background: linear-gradient(135deg, rgba(245, 243, 255, 0.92), rgba(255, 255, 255, 0.9));
+  border-radius: var(--app-radius-md);
+  background: var(--theme-board-strong-bg);
 }
 
 .group-board {
-  border-radius: 30rpx;
+  border-radius: var(--app-radius-md);
   padding: 24rpx;
 }
 
@@ -1556,9 +2226,10 @@ function changeStatus(payload) {
   gap: 10rpx;
   padding: 10rpx 16rpx;
   border-radius: 999rpx;
-  background: rgba(255, 255, 255, 0.9);
-  color: #334155;
+  background: var(--theme-chip-bg);
+  color: var(--theme-chip-text);
   font-size: 22rpx;
+  backdrop-filter: blur(var(--app-blur-soft));
 }
 
 .group-toggle-text {
@@ -1579,13 +2250,15 @@ function changeStatus(payload) {
 
 .group-body {
   margin-top: 20rpx;
+  animation: pullDownSoft 0.34s var(--app-ease-spring);
 }
 
 .group-empty {
   padding: 24rpx;
   margin-bottom: 16rpx;
-  border-radius: 24rpx;
-  background: rgba(248, 250, 252, 0.76);
+  border-radius: var(--app-radius-sm);
+  background: var(--theme-plain-bg);
+  backdrop-filter: blur(var(--app-blur-soft));
 }
 
 .chart-panel {
@@ -1594,13 +2267,14 @@ function changeStatus(payload) {
 
 .chart-board {
   width: 100%;
-  border-radius: 36rpx;
+  border-radius: var(--app-radius-lg);
   padding: 28rpx;
-  background: rgba(255, 255, 255, 0.86);
-  border: 1rpx solid rgba(120, 104, 84, 0.12);
-  box-shadow: 0 18rpx 48rpx rgba(44, 35, 20, 0.08);
-  backdrop-filter: blur(12px);
+  background: var(--theme-chart-board-bg);
+  border: 1rpx solid var(--theme-board-border);
+  box-shadow: var(--theme-board-shadow);
+  backdrop-filter: blur(var(--app-blur-strong));
   overflow: hidden;
+  animation: boardFloatIn 0.52s var(--app-ease-spring) both;
 }
 
 .chart-hero {
@@ -1656,9 +2330,10 @@ function changeStatus(payload) {
   font-size: 22rpx;
   font-weight: 700;
   color: #2563eb;
-  background: rgba(255, 255, 255, 0.92);
+  background: var(--theme-chart-reset-bg);
   border: 1rpx solid rgba(37, 99, 235, 0.24);
   box-shadow: 0 10rpx 24rpx rgba(37, 99, 235, 0.08);
+  backdrop-filter: blur(var(--app-blur-soft));
 }
 
 .chart-density-chip {
@@ -1670,7 +2345,7 @@ function changeStatus(payload) {
 .chart-range-tip {
   font-size: 22rpx;
   line-height: 1.6;
-  color: #64748b;
+  color: var(--theme-muted-text);
 }
 
 .chart-hero-center {
@@ -1692,7 +2367,7 @@ function changeStatus(payload) {
   font-size: 38rpx;
   line-height: 1.4;
   font-weight: 800;
-  color: #111827;
+  color: var(--theme-card-title);
 }
 
 .chart-hero-progress {
@@ -1700,7 +2375,7 @@ function changeStatus(payload) {
   max-width: 100%;
   font-size: 25rpx;
   line-height: 1.8;
-  color: #475569;
+  color: var(--theme-card-text);
 }
 
 .chart-progress-track {
@@ -1728,7 +2403,7 @@ function changeStatus(payload) {
   justify-content: space-between;
   gap: 16rpx;
   font-size: 22rpx;
-  color: #64748b;
+  color: var(--theme-muted-text);
 }
 
 .chart-empty-state {
@@ -1749,6 +2424,7 @@ function changeStatus(payload) {
   width: 100%;
   margin-top: 24rpx;
   overscroll-behavior: contain;
+  scroll-behavior: smooth;
 }
 
 .timeline-content {
@@ -1800,8 +2476,8 @@ function changeStatus(payload) {
   padding: 6rpx 14rpx;
   border-radius: 999rpx;
   font-size: 20rpx;
-  color: #64748b;
-  background: rgba(255, 255, 255, 0.9);
+  color: var(--theme-muted-text);
+  background: var(--theme-chip-bg);
   white-space: nowrap;
 }
 
@@ -1834,28 +2510,29 @@ function changeStatus(payload) {
 .timeline-stage-title {
   font-size: 28rpx;
   font-weight: 800;
-  color: #0f172a;
+  color: var(--theme-card-title);
 }
 
 .timeline-stage-desc {
   margin-top: 8rpx;
   font-size: 22rpx;
   line-height: 1.7;
-  color: #64748b;
+  color: var(--theme-muted-text);
 }
 
 .timeline-stage-count {
-  color: #0f172a;
-  background: rgba(241, 245, 249, 0.95);
+  color: var(--theme-card-title);
+  background: var(--theme-chip-bg);
 }
 
 .timeline-stage-body {
   position: relative;
-  border-radius: 28rpx;
+  border-radius: var(--app-radius-md);
   padding: 0 16rpx;
   overflow: visible;
-  background: linear-gradient(180deg, rgba(248, 250, 252, 0.92), rgba(255, 255, 255, 0.96));
+  background: var(--theme-chart-stage-bg);
   border: 1rpx solid rgba(148, 163, 184, 0.12);
+  backdrop-filter: blur(var(--app-blur-soft));
 }
 
 .timeline-grid-line {
@@ -1881,10 +2558,12 @@ function changeStatus(payload) {
 .timeline-goal-card {
   position: absolute;
   padding: 20rpx 22rpx 18rpx 26rpx;
-  border-radius: 24rpx;
+  border-radius: var(--app-radius-sm);
   border: 1rpx solid transparent;
   box-sizing: border-box;
   overflow: visible;
+  backdrop-filter: blur(var(--app-blur-soft));
+  animation: timelineCardIn 0.4s var(--app-ease-spring) both;
 }
 
 .timeline-goal-card.tappable {
@@ -1893,6 +2572,8 @@ function changeStatus(payload) {
 
 .timeline-goal-card.active {
   z-index: 3;
+  transform: translateY(-8rpx) scale(1.02);
+  box-shadow: 0 22rpx 50rpx rgba(15, 23, 42, 0.16);
 }
 
 .timeline-goal-card.doing {
@@ -1938,7 +2619,7 @@ function changeStatus(payload) {
   font-size: 26rpx;
   line-height: 1.45;
   font-weight: 800;
-  color: #111827;
+  color: var(--theme-card-title);
 }
 
 .timeline-goal-badge {
@@ -1958,14 +2639,14 @@ function changeStatus(payload) {
   margin-top: 10rpx;
   font-size: 21rpx;
   line-height: 1.6;
-  color: #475569;
+  color: var(--theme-card-text);
 }
 
 .timeline-goal-extra {
   margin-top: 10rpx;
   font-size: 21rpx;
   line-height: 1.7;
-  color: #64748b;
+  color: var(--theme-muted-text);
   display: -webkit-box;
   overflow: hidden;
   -webkit-box-orient: vertical;
@@ -1982,10 +2663,11 @@ function changeStatus(payload) {
   right: 24rpx;
   bottom: calc(100% + 16rpx);
   padding: 20rpx;
-  border-radius: 24rpx;
+  border-radius: var(--app-radius-sm);
   background: rgba(15, 23, 42, 0.96);
   box-shadow: 0 26rpx 60rpx rgba(15, 23, 42, 0.28);
   z-index: 6;
+  animation: popFromBottom 0.32s var(--app-ease-bounce);
 }
 
 .completion-popover::after {
@@ -2041,16 +2723,16 @@ function changeStatus(payload) {
   position: fixed;
   left: 28rpx;
   right: 28rpx;
-  bottom: 24rpx;
+  bottom: calc(24rpx + var(--app-safe-bottom));
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   align-items: center;
   padding: 20rpx 16rpx;
-  border-radius: 36rpx;
-  background: rgba(255, 255, 255, 0.94);
-  border: 1rpx solid rgba(120, 104, 84, 0.12);
-  box-shadow: 0 20rpx 56rpx rgba(44, 35, 20, 0.12);
-  backdrop-filter: blur(16px);
+  border-radius: var(--app-radius-lg);
+  background: var(--theme-nav-bg);
+  border: 1rpx solid var(--theme-nav-border);
+  box-shadow: var(--theme-nav-shadow);
+  backdrop-filter: blur(var(--app-blur-strong));
   z-index: 15;
 }
 
@@ -2061,11 +2743,59 @@ function changeStatus(payload) {
   justify-content: center;
   gap: 6rpx;
   min-height: 84rpx;
-  color: #64748b;
+  color: var(--theme-nav-color);
+  border-radius: var(--app-radius-sm);
 }
 
 .nav-item.active {
-  color: #1d4ed8;
+  color: var(--theme-nav-active);
+  transform: translateY(-8rpx) scale(1.03);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04));
+}
+
+.nav-item:active {
+  transform: translateY(2rpx) scale(0.97);
+}
+
+.effect-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.firework-burst,
+.shatter-piece {
+  position: fixed;
+}
+
+.firework-burst {
+  width: 0;
+  height: 0;
+}
+
+.firework-particle {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--particle-size);
+  height: var(--particle-size);
+  margin-left: calc(var(--particle-size) * -0.5);
+  margin-top: calc(var(--particle-size) * -0.5);
+  border-radius: 999rpx;
+  background: var(--particle-color);
+  box-shadow: 0 0 24rpx var(--particle-color);
+  animation: fireworkParticle 1.2s ease-out forwards;
+}
+
+.shatter-piece {
+  border-radius: 10rpx;
+  background: var(--shatter-bg);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 14rpx 30rpx rgba(15, 23, 42, 0.14);
+  animation: shatterParticle 0.46s ease-in forwards;
+  animation-delay: var(--shatter-delay);
 }
 
 .nav-icon {
@@ -2087,15 +2817,22 @@ function changeStatus(payload) {
   align-items: flex-end;
   justify-content: center;
   padding: 28rpx;
+  backdrop-filter: blur(var(--app-blur-soft));
+  animation: fadeInSoft 0.24s ease;
 }
 
 .detail-sheet {
   width: 100%;
   max-height: 82vh;
-  border-radius: 34rpx 34rpx 0 0;
-  background: rgba(248, 250, 252, 0.98);
-  box-shadow: 0 -20rpx 60rpx rgba(15, 23, 42, 0.16);
+  border-radius: var(--app-radius-xl) var(--app-radius-xl) 0 0;
+  background: var(--theme-sheet-bg);
+  box-shadow: var(--theme-sheet-shadow);
   overflow: hidden;
+  backdrop-filter: blur(var(--app-blur-strong));
+}
+
+.detail-sheet-enter {
+  animation: sheetRise 0.4s var(--app-ease-spring);
 }
 
 .detail-sheet-head {
@@ -2111,8 +2848,9 @@ function changeStatus(payload) {
   align-items: center;
   justify-content: center;
   font-size: 34rpx;
-  color: #64748b;
-  background: rgba(255, 255, 255, 0.92);
+  color: var(--theme-muted-text);
+  background: var(--theme-chip-bg);
+  backdrop-filter: blur(var(--app-blur-soft));
 }
 
 .detail-sheet-body {
@@ -2123,13 +2861,167 @@ function changeStatus(payload) {
 
 .board-collapse-enter-active,
 .board-collapse-leave-active {
-  transition: all 0.24s ease;
+  transition: all 0.28s var(--app-ease-spring);
   overflow: hidden;
 }
 
 .board-collapse-enter-from,
 .board-collapse-leave-to {
   opacity: 0;
-  transform: translateY(-12rpx);
+  transform: translateY(-14rpx) scaleY(0.96);
+}
+
+@keyframes fadeInSoft {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+@keyframes ambientFloat {
+  0% {
+    transform: translate3d(0, 0, 0) scale(1);
+  }
+  100% {
+    transform: translate3d(12rpx, -18rpx, 0) scale(1.08);
+  }
+}
+
+@keyframes slideDrawerIn {
+  0% {
+    opacity: 0;
+    transform: translateX(-48rpx) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes boardFloatIn {
+  0% {
+    opacity: 0;
+    transform: translateY(26rpx) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes focusCardZoomIn {
+  0% {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes panelSlideLeft {
+  0% {
+    opacity: 0;
+    transform: translateX(42rpx) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes panelSlideRight {
+  0% {
+    opacity: 0;
+    transform: translateX(-42rpx) scale(0.985);
+  }
+  100% {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes tabBounce {
+  0% {
+    transform: scale(1);
+  }
+  35% {
+    transform: scale(1.02) translateY(-6rpx);
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+
+@keyframes pullDownSoft {
+  0% {
+    opacity: 0;
+    transform: translateY(-18rpx);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes timelineCardIn {
+  0% {
+    opacity: 0;
+    transform: translateY(18rpx) scale(0.97);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes popFromBottom {
+  0% {
+    opacity: 0;
+    transform: translateY(16rpx) scale(0.96);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes sheetRise {
+  0% {
+    opacity: 0;
+    transform: translateY(54rpx) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes fireworkParticle {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) scale(0.2) rotate(0deg);
+  }
+  18% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--particle-x), var(--particle-y), 0) scale(0.08) rotate(var(--particle-rotate));
+  }
+}
+
+@keyframes shatterParticle {
+  0% {
+    opacity: 1;
+    transform: translate3d(0, 0, 0) rotate(0deg) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(var(--shatter-x), var(--shatter-y), 0) rotate(var(--shatter-r)) scale(0.42);
+  }
 }
 </style>

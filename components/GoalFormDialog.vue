@@ -40,6 +40,16 @@
             <textarea v-model="form.purpose" class="textarea purpose" maxlength="500" placeholder="为什么要做这个目标，它会带来什么改变" />
           </view>
 
+          <view class="field">
+            <text class="label">如何达成</text>
+            <textarea
+              v-model="form.achieveMethod"
+              class="textarea achieve-method"
+              maxlength="1000"
+              placeholder="拆解实现路径、关键动作或执行方法，例如：每周复盘一次、每天投入 2 小时、分三个阶段推进"
+            />
+          </view>
+
           <view v-if="showUltimateFields" class="field">
             <text class="label">当前进度</text>
             <textarea
@@ -66,26 +76,11 @@
             </view>
           </view>
 
-          <view class="field">
-            <text class="label">目标状态</text>
-            <view class="status-group">
-              <view
-                v-for="option in statusOptions"
-                :key="option.value"
-                class="status-pill"
-                :class="{ active: form.status === option.value }"
-                :style="form.status === option.value ? { borderColor: option.color, color: option.color } : null"
-                @tap="form.status = option.value"
-              >
-                {{ option.label }}
-              </view>
-            </view>
-          </view>
         </template>
 
         <view v-if="showCompletionFields" class="field proof-field">
           <view class="proof-head">
-            <text class="label">完成凭证</text>
+            <text class="label">完成成果</text>
             <text class="proof-tip">完成时至少填写描述、照片或视频中的一项</text>
           </view>
 
@@ -129,7 +124,7 @@
 
 <script setup>
 import { computed, reactive, watch } from "vue";
-import { DEFAULT_GOAL_FORM, GOAL_STATUS_OPTIONS } from "../common/goalConstants";
+import { DEFAULT_GOAL_FORM } from "../common/goalConstants";
 import { hasGoalCompletionProof } from "../utils/goalUtils";
 
 const props = defineProps({
@@ -157,7 +152,6 @@ const form = reactive({
   ...DEFAULT_GOAL_FORM,
 });
 
-const statusOptions = GOAL_STATUS_OPTIONS;
 const showUltimateFields = computed(() => props.mode === "ultimate" || Boolean(form.isUltimate));
 const showUltimateSummary = computed(() => props.mode === "ultimate");
 
@@ -179,7 +173,7 @@ const dialogTitle = computed(() => {
 
 const dialogSubtitle = computed(() => {
   if (props.mode === "complete") {
-    return "补充完成凭证后，才能把目标标记为已完成";
+    return "补充完成成果后，才能把目标标记为已完成";
   }
   if (props.mode === "ultimate") {
     return "终极目标全局仅允许一个，并可持续记录当前进度";
@@ -213,6 +207,7 @@ function syncForm() {
 
   Object.assign(form, nextValue, {
     isUltimate: Boolean(nextValue.isUltimate),
+    achieveMethod: nextValue.achieveMethod || "",
     currentProgress: nextValue.currentProgress || "",
     completionNote: nextValue.completionNote || "",
     completionImages: Array.isArray(nextValue.completionImages) ? nextValue.completionImages.slice() : [],
@@ -330,6 +325,7 @@ function handleSave() {
     title: title || form.title,
     content: form.content.trim(),
     purpose: form.purpose.trim(),
+    achieveMethod: form.achieveMethod.trim(),
     startTime: form.startTime,
     endTime: form.endTime,
     status: nextStatus,
@@ -351,6 +347,7 @@ function handleSave() {
   padding: 28rpx;
   background: rgba(15, 23, 42, 0.45);
   backdrop-filter: blur(10px);
+  animation: maskFadeIn 0.24s ease;
 }
 
 .panel {
@@ -359,10 +356,11 @@ function handleSave() {
   max-height: 88vh;
   display: flex;
   flex-direction: column;
-  border-radius: 34rpx;
-  background: rgba(255, 255, 255, 0.96);
+  border-radius: var(--app-radius-xl, 34rpx);
+  background: rgba(255, 255, 255, 0.82);
   box-shadow: 0 30rpx 90rpx rgba(47, 36, 20, 0.22);
   overflow: hidden;
+  backdrop-filter: blur(var(--app-blur-strong, 20px));
 }
 
 .panel-head,
@@ -399,6 +397,7 @@ function handleSave() {
   font-size: 36rpx;
   color: #6b7280;
   background: rgba(243, 244, 246, 0.8);
+  backdrop-filter: blur(var(--app-blur-soft, 12px));
 }
 
 .panel-body {
@@ -421,16 +420,18 @@ function handleSave() {
 
 .complete-card {
   padding: 24rpx;
-  border-radius: 26rpx;
+  border-radius: var(--app-radius-sm, 26rpx);
   background: linear-gradient(135deg, rgba(240, 253, 244, 0.92), rgba(220, 252, 231, 0.9));
   border: 1rpx solid rgba(34, 197, 94, 0.18);
+  backdrop-filter: blur(var(--app-blur-soft, 12px));
 }
 
 .ultimate-card {
   padding: 24rpx;
-  border-radius: 26rpx;
+  border-radius: var(--app-radius-sm, 26rpx);
   background: linear-gradient(135deg, rgba(245, 243, 255, 0.95), rgba(237, 233, 254, 0.92));
   border: 1rpx solid rgba(124, 58, 237, 0.18);
+  backdrop-filter: blur(var(--app-blur-soft, 12px));
 }
 
 .complete-name {
@@ -471,12 +472,13 @@ function handleSave() {
 .textarea,
 .picker {
   width: 100%;
-  border-radius: 24rpx;
+  border-radius: var(--app-radius-sm, 24rpx);
   border: 1rpx solid rgba(120, 104, 84, 0.16);
-  background: #fff;
+  background: rgba(255, 255, 255, 0.82);
   padding: 22rpx 24rpx;
   color: #111827;
   box-sizing: border-box;
+  backdrop-filter: blur(var(--app-blur-soft, 12px));
 }
 
 .input {
@@ -490,6 +492,10 @@ function handleSave() {
 
 .textarea.purpose {
   min-height: 150rpx;
+}
+
+.textarea.achieve-method {
+  min-height: 180rpx;
 }
 
 .grid {
@@ -508,33 +514,12 @@ function handleSave() {
   color: #111827;
 }
 
-.status-group {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16rpx;
-}
-
-.status-pill {
-  padding: 18rpx 22rpx;
-  border-radius: 999rpx;
-  border: 1rpx solid rgba(148, 163, 184, 0.3);
-  background: rgba(248, 250, 252, 0.95);
-  color: #475569;
-  font-size: 24rpx;
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
-}
-
-.status-pill.active {
-  background: rgba(255, 255, 255, 1);
-  box-shadow: 0 14rpx 24rpx rgba(37, 99, 235, 0.12);
-  transform: scale(1.03);
-}
-
 .proof-field {
   padding: 24rpx;
-  border-radius: 28rpx;
+  border-radius: var(--app-radius-md, 28rpx);
   background: rgba(248, 250, 252, 0.72);
   border: 1rpx solid rgba(148, 163, 184, 0.16);
+  backdrop-filter: blur(var(--app-blur-soft, 12px));
 }
 
 .proof-head {
@@ -575,6 +560,8 @@ function handleSave() {
   color: #1d4ed8;
   font-size: 24rpx;
   font-weight: 700;
+  box-shadow: 0 12rpx 28rpx rgba(37, 99, 235, 0.1);
+  backdrop-filter: blur(var(--app-blur-soft, 12px));
 }
 
 .proof-image-grid {
@@ -592,7 +579,7 @@ function handleSave() {
 .proof-image {
   width: 100%;
   height: 180rpx;
-  border-radius: 22rpx;
+  border-radius: var(--app-radius-sm, 22rpx);
   background: rgba(226, 232, 240, 0.8);
 }
 
@@ -617,7 +604,7 @@ function handleSave() {
 .proof-video {
   width: 100%;
   height: 320rpx;
-  border-radius: 24rpx;
+  border-radius: var(--app-radius-sm, 24rpx);
   background: #000;
 }
 
@@ -634,7 +621,7 @@ function handleSave() {
 .primary-btn {
   flex: 1;
   text-align: center;
-  border-radius: 24rpx;
+  border-radius: var(--app-radius-sm, 24rpx);
   padding: 24rpx 0;
   font-size: 28rpx;
   font-weight: 700;
@@ -649,6 +636,14 @@ function handleSave() {
   color: #fff;
   background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
   box-shadow: 0 16rpx 34rpx rgba(37, 99, 235, 0.24);
+}
+
+.close-btn:active,
+.proof-btn:active,
+.ghost-btn:active,
+.primary-btn:active,
+.proof-image-item:active {
+  transform: scale(0.97);
 }
 
 .animate-pop {
@@ -677,6 +672,15 @@ function handleSave() {
   }
   50% {
     transform: translateY(-4rpx) scale(1.02);
+  }
+}
+
+@keyframes maskFadeIn {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
   }
 }
 </style>

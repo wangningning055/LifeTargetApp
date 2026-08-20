@@ -1,5 +1,5 @@
 import { computed, reactive } from "vue";
-import { addChildGoal, createGoalRecord, deleteGoalById, loadGoals, saveGoals, updateGoalById } from "../services/goalService";
+import { addChildGoal, completeGoalById, createGoalRecord, deleteGoalById, loadGoals, saveGoals, updateGoalById } from "../services/goalService";
 import { flattenGoals, hasGoalCompletionProof } from "../utils/goalUtils";
 
 const state = reactive({
@@ -104,6 +104,11 @@ export function useGoalStore() {
 
   function setGoalStatus(goalId, status, completion = {}) {
     const statusChangedAt = new Date().toISOString();
+    const currentGoal = allGoals.value.find((goal) => goal.id === goalId);
+
+    if (!currentGoal) {
+      return { success: false, action: 'none' };
+    }
 
     if (status === "completed") {
       const completionPatch = {
@@ -113,29 +118,56 @@ export function useGoalStore() {
       };
 
       if (!hasGoalCompletionProof(completionPatch)) {
-        return false;
+        return { success: false, action: 'none' };
       }
 
-      return editGoal(goalId, {
+      if (currentGoal.children && currentGoal.children.length) {
+        const result = completeGoalById(state.goals, goalId, {
+          ...completionPatch,
+          completedAt: statusChangedAt,
+        });
+
+        if (result.changed) {
+          replaceGoals(result.goals);
+        }
+
+        return { success: result.changed, action: result.changed ? 'updated' : 'none' };
+      }
+
+      const success = editGoal(goalId, {
         status,
         ...completionPatch,
         completedAt: statusChangedAt,
         abandonedAt: "",
       });
+
+      return { success, action: success ? 'updated' : 'none' };
     }
 
     if (status === "abandoned") {
-      return editGoal(goalId, {
+      if (currentGoal.parentId) {
+        const result = deleteGoalById(state.goals, goalId);
+        if (result.deleted) {
+          replaceGoals(result.goals);
+        }
+
+        return { success: result.deleted, action: result.deleted ? 'deleted' : 'none' };
+      }
+
+      const success = editGoal(goalId, {
         status,
         completionNote: "",
         completionImages: [],
         completionVideo: "",
         completedAt: "",
         abandonedAt: statusChangedAt,
+        children: [],
       });
+
+      return { success, action: success ? 'updated' : 'none' };
     }
 
-    return editGoal(goalId, {
+    const success = editGoal(goalId, {
       status,
       completionNote: "",
       completionImages: [],
@@ -143,6 +175,8 @@ export function useGoalStore() {
       completedAt: "",
       abandonedAt: "",
     });
+
+    return { success, action: success ? 'updated' : 'none' };
   }
 
   function resetDemoData() {
