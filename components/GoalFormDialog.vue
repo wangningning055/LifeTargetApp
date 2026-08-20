@@ -346,7 +346,7 @@ function handleSave() {
   justify-content: center;
   padding: 28rpx;
   background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(10px);
+  backdrop-filter: none;
   animation: maskFadeIn 0.24s ease;
 }
 
@@ -651,7 +651,7 @@ function handleSave() {
 }
 
 .bounce-btn {
-  animation: bounceSoft 2.4s ease-in-out infinite;
+  animation: none;
 }
 
 @keyframes popIn {

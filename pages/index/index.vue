@@ -76,7 +76,7 @@
             v-if="focusGoalTrees.length"
             class="goal-swiper"
             circular
-            autoplay
+            :autoplay="false"
             indicator-dots
             :interval="3200"
             :duration="450"
@@ -382,7 +382,7 @@
         <view
           v-for="particle in burst.particles"
           :key="particle.id"
-          class="firework-particle"
+          :class="['firework-particle', particle.kind]"
           :style="particle.style"
         ></view>
       </view>
@@ -451,6 +451,20 @@ const WINDOW_HEIGHT = uni.getSystemInfoSync ? uni.getSystemInfoSync().windowHeig
 const WHEEL_LISTENER_OPTIONS = { passive: false, capture: true };
 const HAS_DOM_QUERY = typeof document !== 'undefined' && typeof document.querySelector === 'function';
 const HAS_DOM_EVENT_API = typeof document !== 'undefined' && typeof document.addEventListener === 'function';
+const EMPTY_CHART_TIMELINE = Object.freeze({
+  hasGoals: false,
+  contentWidth: '720rpx',
+  contentWidthValue: 720,
+  rangeStart: 0,
+  rangeEnd: 0,
+  ticks: [],
+  todayVisible: false,
+  todayLeft: '0%',
+  rangeLabel: '暂无数据',
+  items: [],
+  height: '240rpx',
+  count: 0,
+});
 
 const {
   state,
@@ -485,6 +499,8 @@ const pinchState = reactive({
   startDistance: 0,
   startZoom: 1,
 });
+let chartZoomFrameId = 0;
+let pendingChartZoom = DEFAULT_CHART_ZOOM;
 const effectTimers = [];
 const dialog = reactive({
   visible: false,
@@ -506,7 +522,13 @@ const ultimateRootGoal = computed(() => state.goals.find((goal) => goal.isUltima
 const ultimateButtonText = computed(() => (ultimateRootGoal.value ? '编辑终极目标' : '设置终极目标'));
 const ultimateTimelineText = computed(() => formatUltimateTimelineText(ultimateRootGoal.value?.startTime, ultimateRootGoal.value?.endTime));
 const currentThemeLabel = computed(() => (currentTheme.value === 'dusk' ? '暮色主题' : '明亮主题'));
-const focusGoalTrees = computed(() => sortGoalTree(filterDoingGoalTree(regularGoals.value)));
+const focusGoalTrees = computed(() => {
+  if (activeTab.value !== 'home') {
+    return [];
+  }
+
+  return sortGoalTree(filterDoingGoalTree(regularGoals.value));
+});
 const chartDisplayMode = computed(() => {
   if (chartZoom.value >= 1.45) {
     return 'detail';
@@ -544,8 +566,18 @@ const chartSummary = computed(() => {
     ultimateProgress: ultimateRootGoal.value?.currentProgress || '尚未记录终极目标当前进度。',
   };
 });
-const chartTimeline = computed(() => buildChartTimeline(regularFlatGoals.value, chartZoom.value, chartDisplayMode.value));
+const chartTimeline = computed(() => {
+  if (activeTab.value !== 'chart') {
+    return EMPTY_CHART_TIMELINE;
+  }
+
+  return buildChartTimeline(regularFlatGoals.value, chartZoom.value, chartDisplayMode.value);
+});
 const groupedGoals = computed(() => {
+  if (activeTab.value !== 'list') {
+    return [];
+  }
+
   return [
     {
       key: 'doing',
@@ -632,15 +664,16 @@ function sortGoalTree(goals) {
 }
 
 function buildFlatGroupGoals(status) {
+  const goalTitleMap = new Map(allGoals.value.map((item) => [item.id, item.title]));
+
   return sortGoalsByRemainingTime(
     regularFlatGoals.value
       .filter((goal) => goal.status === status && (status !== 'abandoned' || !goal.parentId))
       .map((goal) => {
-        const parentGoal = goal.parentId ? allGoals.value.find((item) => item.id === goal.parentId) : null;
         return {
           ...goal,
           children: [],
-          parentGoalTitle: parentGoal?.title || '',
+          parentGoalTitle: goal.parentId ? (goalTitleMap.get(goal.parentId) || '') : '',
         };
       })
   );
@@ -761,34 +794,85 @@ function getGoalEffectAnchor(goalId) {
 
 function triggerFireworks(goalId) {
   const anchor = getGoalEffectAnchor(goalId);
-  const nextBursts = Array.from({ length: 4 }, (_, burstIndex) => {
+  const anchorPercentX = Number.parseFloat(anchor.x) || 50;
+  const anchorPercentY = Number.parseFloat(anchor.y) || 34;
+  const originPresets = [
+    { x: anchorPercentX, y: Math.max(16, anchorPercentY - 10) },
+    { x: 14, y: 18 },
+    { x: 30, y: 14 },
+    { x: 50, y: 16 },
+    { x: 70, y: 14 },
+    { x: 86, y: 18 },
+    { x: 10, y: 36 },
+    { x: 26, y: 34 },
+    { x: anchorPercentX, y: anchorPercentY },
+    { x: 74, y: 34 },
+    { x: 90, y: 38 },
+    { x: 18, y: 58 },
+    { x: 38, y: 56 },
+    { x: 62, y: 58 },
+    { x: 82, y: 56 },
+    { x: 12, y: 76 },
+    { x: 30, y: 82 },
+    { x: 50, y: 78 },
+    { x: 70, y: 82 },
+    { x: 88, y: 76 },
+  ];
+  const burstConfigs = [
+    { spreadX: 14, spreadY: 12, delay: 0, distanceMin: 260, distanceMax: 520, count: 24 },
+    { spreadX: 22, spreadY: 18, delay: 0, distanceMin: 300, distanceMax: 600, count: 28 },
+    { spreadX: 30, spreadY: 22, delay: 0, distanceMin: 340, distanceMax: 660, count: 30 },
+    { spreadX: 40, spreadY: 28, delay: 0, distanceMin: 380, distanceMax: 720, count: 32 },
+    { spreadX: 52, spreadY: 34, delay: 0, distanceMin: 420, distanceMax: 780, count: 34 },
+    { spreadX: 64, spreadY: 40, delay: 0, distanceMin: 460, distanceMax: 840, count: 36 },
+  ];
+  const nextBursts = burstConfigs.map((config, burstIndex) => {
     const burstId = createEffectId('firework');
-    const offsetX = randomBetween(-10, 10);
-    const offsetY = randomBetween(-8, 8);
-    const particles = Array.from({ length: 14 }, (_, particleIndex) => {
-      const angle = (Math.PI * 2 * particleIndex) / 14 + randomBetween(-0.12, 0.12);
-      const distance = randomBetween(70, 170);
-      const size = randomBetween(10, 18);
-      const palette = ['#f59e0b', '#ef4444', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899'];
+    const origin = originPresets[burstIndex % originPresets.length];
+    const originX = clamp(origin.x + randomBetween(-config.spreadX * 0.35, config.spreadX * 0.35), 4, 96);
+    const originY = clamp(origin.y + randomBetween(-config.spreadY * 0.35, config.spreadY * 0.35), 6, 92);
+    const particleCount = config.count;
+    const particles = Array.from({ length: particleCount }, (_, particleIndex) => {
+      const angle = (Math.PI * 2 * particleIndex) / particleCount + randomBetween(-0.16, 0.16);
+      const distance = randomBetween(config.distanceMin, config.distanceMax);
+      const size = randomBetween(14, 28);
+      const palette = ['#f59e0b', '#ef4444', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#f97316', '#06b6d4', '#fde047', '#fb7185'];
+      const glow = randomBetween(20, 44);
+      const variantSeed = Math.random();
+      let kind = 'core';
+
+      if (variantSeed > 0.82) {
+        kind = 'ring';
+      } else if (variantSeed > 0.58) {
+        kind = 'comet';
+      } else if (variantSeed > 0.38) {
+        kind = 'star';
+      }
 
       return {
         id: `${burstId}_${particleIndex}`,
+        kind,
         style: {
           '--particle-size': `${size}rpx`,
           '--particle-color': palette[particleIndex % palette.length],
+          '--particle-inner-color': particleIndex % 2 === 0 ? '#ffffff' : 'rgba(255,255,255,0.82)',
           '--particle-x': `${Math.cos(angle) * distance}rpx`,
           '--particle-y': `${Math.sin(angle) * distance}rpx`,
-          '--particle-rotate': `${randomBetween(-220, 220)}deg`,
-          animationDelay: `${burstIndex * 120}ms`,
+          '--particle-rotate': `${randomBetween(-280, 280)}deg`,
+          '--particle-glow': `${glow}rpx`,
+          '--particle-scale': `${randomBetween(0.24, 0.4)}`,
+          '--particle-flare-scale': `${randomBetween(1.08, 1.42)}`,
+          '--particle-stretch': `${randomBetween(1.2, 2)}`,
+          animationDelay: `${config.delay + randomBetween(0, 22)}ms`,
         },
       };
     });
 
     return {
       id: burstId,
-      x: `calc(${anchor.x} + ${offsetX}%)`,
-      y: `calc(${anchor.y} + ${offsetY}%)`,
-      delay: burstIndex * 120,
+      x: `${originX}%`,
+      y: `${originY}%`,
+      delay: config.delay,
       particles,
     };
   });
@@ -798,7 +882,7 @@ function triggerFireworks(goalId) {
   scheduleEffectCleanup(() => {
     const burstIds = nextBursts.map((item) => item.id);
     fireworks.value = fireworks.value.filter((item) => !burstIds.includes(item.id));
-  }, 1800);
+  }, 3200);
 }
 
 function triggerGoalShatter(goalId, onComplete) {
@@ -874,8 +958,26 @@ function updateChartZoom(nextZoom, options = {}) {
   }
 }
 
+function queueChartZoom(nextZoom, options = {}) {
+  pendingChartZoom = nextZoom;
+
+  if (options.forceSync || typeof requestAnimationFrame !== 'function') {
+    updateChartZoom(pendingChartZoom, options);
+    return;
+  }
+
+  if (chartZoomFrameId) {
+    return;
+  }
+
+  chartZoomFrameId = requestAnimationFrame(() => {
+    chartZoomFrameId = 0;
+    updateChartZoom(pendingChartZoom, options);
+  });
+}
+
 function resetChartZoom() {
-  updateChartZoom(DEFAULT_CHART_ZOOM, { forceSync: true });
+  queueChartZoom(DEFAULT_CHART_ZOOM, { forceSync: true });
 }
 
 function applyTimelineScrollLeft(nextLeft) {
@@ -1197,12 +1299,6 @@ function syncTimelineToToday() {
   const nextLeft = Math.max(0, Math.min(todayOffsetPx - viewportWidthPx / 2, Math.max(0, contentWidthPx - viewportWidthPx)));
 
   applyTimelineScrollLeft(nextLeft);
-
-  if (typeof requestAnimationFrame === 'function') {
-    requestAnimationFrame(() => {
-      applyTimelineScrollLeft(nextLeft);
-    });
-  }
 }
 
 function switchTab(tab) {
@@ -1212,7 +1308,7 @@ function switchTab(tab) {
 
   if (activeTab.value === tab) {
     tabSwitchClass.value = 'tab-bounce';
-    setTimeout(() => {
+    scheduleEffectCleanup(() => {
       tabSwitchClass.value = 'tab-motion-none';
     }, 420);
     return;
@@ -1222,7 +1318,7 @@ function switchTab(tab) {
   activeTab.value = tab;
   activeProofGoalId.value = '';
 
-  setTimeout(() => {
+  scheduleEffectCleanup(() => {
     if (tabSwitchClass.value !== 'tab-bounce') {
       tabSwitchClass.value = 'tab-motion-none';
     }
@@ -1251,7 +1347,7 @@ function openContactUs() {
   closeSidebar();
   uni.showModal({
     title: '联系我们',
-    content: '如果你有建议或使用问题，可通过当前应用维护渠道联系开发者进行反馈。',
+    content: '如果你有建议或使用问题，可通过当前应用维护渠道联系开发者进行反馈。\n邮箱：2280789089@qq.com',
     showCancel: false,
     confirmText: '知道了',
   });
@@ -1322,7 +1418,7 @@ function handleChartTouchMove(event) {
     return;
   }
 
-  updateChartZoom(pinchState.startZoom * (currentDistance / pinchState.startDistance));
+  queueChartZoom(pinchState.startZoom * (currentDistance / pinchState.startDistance));
 }
 
 function handleChartTouchEnd(event) {
@@ -1356,7 +1452,7 @@ function handleChartWheel(event) {
 
   const step = Math.min(0.32, Math.max(0.08, Math.abs(rawDelta) / 600));
   const direction = rawDelta < 0 ? 1 : -1;
-  updateChartZoom(chartZoom.value + direction * step);
+  queueChartZoom(chartZoom.value + direction * step);
 }
 
 function handleGlobalWheel(event) {
@@ -1493,6 +1589,11 @@ onMounted(() => {
 
 onBeforeUnmount(() => {
   unbindWheelZoom();
+
+  if (chartZoomFrameId && typeof cancelAnimationFrame === 'function') {
+    cancelAnimationFrame(chartZoomFrameId);
+    chartZoomFrameId = 0;
+  }
 
   if (HAS_DOM_EVENT_API) {
     document.removeEventListener('wheel', handleGlobalWheel, WHEEL_LISTENER_OPTIONS);
@@ -1756,8 +1857,8 @@ function changeStatus(payload) {
   border-radius: 50%;
   pointer-events: none;
   z-index: 0;
-  filter: blur(32rpx);
-  animation: ambientFloat 7.6s ease-in-out infinite alternate;
+  filter: none;
+  animation: none;
 }
 
 .page::before {
@@ -2784,9 +2885,34 @@ function changeStatus(payload) {
   margin-left: calc(var(--particle-size) * -0.5);
   margin-top: calc(var(--particle-size) * -0.5);
   border-radius: 999rpx;
-  background: var(--particle-color);
-  box-shadow: 0 0 24rpx var(--particle-color);
-  animation: fireworkParticle 1.2s ease-out forwards;
+  background: radial-gradient(circle, var(--particle-inner-color) 0%, var(--particle-color) 42%, rgba(255, 255, 255, 0) 100%);
+  border: 1rpx solid rgba(255, 255, 255, 0.9);
+  box-shadow:
+    0 0 var(--particle-glow, 28rpx) var(--particle-color),
+    0 0 calc(var(--particle-glow, 28rpx) * 0.7) rgba(255, 255, 255, 0.88),
+    0 0 calc(var(--particle-glow, 28rpx) * 1.2) rgba(255, 255, 255, 0.32);
+  animation: fireworkParticle 2.2s linear forwards;
+}
+
+.firework-particle.ring {
+  background: transparent;
+  border: 3rpx solid var(--particle-color);
+  box-shadow:
+    0 0 calc(var(--particle-glow, 28rpx) * 1.15) var(--particle-color),
+    inset 0 0 18rpx rgba(255, 255, 255, 0.7);
+}
+
+.firework-particle.star {
+  border-radius: 16rpx;
+  transform-origin: center;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.98), var(--particle-color));
+}
+
+.firework-particle.comet {
+  width: calc(var(--particle-size) * var(--particle-stretch, 2));
+  border-radius: 999rpx;
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.98), var(--particle-color), rgba(255, 255, 255, 0));
+  transform-origin: left center;
 }
 
 .shatter-piece {
@@ -3003,14 +3129,15 @@ function changeStatus(payload) {
 @keyframes fireworkParticle {
   0% {
     opacity: 0;
-    transform: translate3d(0, 0, 0) scale(0.2) rotate(0deg);
+    transform: translate3d(0, 0, 0) scale(0.08) rotate(0deg);
   }
-  18% {
+  10% {
     opacity: 1;
+    transform: translate3d(calc(var(--particle-x) * 0.1), calc(var(--particle-y) * 0.1), 0) scale(var(--particle-flare-scale, 1.4)) rotate(calc(var(--particle-rotate) * 0.1));
   }
   100% {
     opacity: 0;
-    transform: translate3d(var(--particle-x), var(--particle-y), 0) scale(0.08) rotate(var(--particle-rotate));
+    transform: translate3d(var(--particle-x), var(--particle-y), 0) scale(var(--particle-scale, 0.24)) rotate(var(--particle-rotate));
   }
 }
 

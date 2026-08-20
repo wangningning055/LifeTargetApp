@@ -46,7 +46,7 @@ defineEmits(['create']);
   border-radius: 50%;
   filter: blur(8rpx);
   opacity: 0.36;
-  animation: float 4.8s ease-in-out infinite;
+  animation: none;
 }
 
 .orb-a {
@@ -76,7 +76,7 @@ defineEmits(['create']);
   color: #fff;
   font-size: 42rpx;
   box-shadow: 0 18rpx 36rpx rgba(37, 99, 235, 0.28);
-  animation: pulse 2.2s ease-in-out infinite;
+  animation: none;
 }
 
 .title {
@@ -102,7 +102,7 @@ defineEmits(['create']);
   font-weight: 700;
   background: linear-gradient(135deg, #2563eb 0%, #7c3aed 100%);
   box-shadow: 0 16rpx 34rpx rgba(37, 99, 235, 0.24);
-  animation: bounceSoft 2.6s ease-in-out infinite;
+  animation: none;
 }
 
 @keyframes float {

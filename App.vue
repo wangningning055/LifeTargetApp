@@ -11,8 +11,8 @@
   --app-radius-md: 30rpx;
   --app-radius-lg: 36rpx;
   --app-radius-xl: 44rpx;
-  --app-blur-soft: 12px;
-  --app-blur-strong: 20px;
+  --app-blur-soft: 0px;
+  --app-blur-strong: 0px;
   --app-ease-spring: cubic-bezier(0.22, 1, 0.36, 1);
   --app-ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
   --app-duration-fast: 0.22s;
@@ -63,25 +63,5 @@ textarea {
 
 button {
   margin: 0;
-}
-
-view,
-text,
-button,
-input,
-textarea,
-image,
-video,
-scroll-view,
-swiper,
-swiper-item {
-  transition:
-    transform var(--app-duration-base) var(--app-ease-spring),
-    opacity var(--app-duration-fast) ease,
-    box-shadow var(--app-duration-base) ease,
-    background var(--app-duration-base) ease,
-    border-color var(--app-duration-base) ease,
-    color var(--app-duration-fast) ease,
-    filter var(--app-duration-base) ease;
 }
 </style>
